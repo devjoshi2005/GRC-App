@@ -1,0 +1,912 @@
+[
+  {
+    "finding_info": {
+      "title": "S3 Bucket Encryption Missing",
+      "desc": "S3 bucket 'prod-data-lake' does not have server-side encryption enabled",
+      "created_time_dt": "2026-03-02T15:25:07.777188+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Data exposure risk \u2014 unencrypted data at rest violates PCI-DSS Req 3.4",
+    "remediation": {
+      "desc": "Enable SSE-S3 or SSE-KMS encryption on the bucket"
+    },
+    "metadata": {
+      "event_code": "s3_bucket_server_side_encryption"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::prod-data-lake",
+        "name": "prod-data-lake",
+        "type": "AwsS3Bucket",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-13",
+          "SC-28"
+        ],
+        "PCI-DSS-v4.0.1": [
+          "3.4"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "IAM Root Account Access Key Exists",
+      "desc": "Root account has active access keys which can lead to full account compromise",
+      "created_time_dt": "2026-03-02T15:25:07.777215+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Root access keys allow unrestricted access to all AWS services",
+    "remediation": {
+      "desc": "Delete root access keys and use IAM users with least privilege"
+    },
+    "metadata": {
+      "event_code": "iam_no_root_access_key"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:iam::123456789012:root",
+        "name": "root",
+        "type": "AwsIamUser",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "AC-6"
+        ],
+        "CIS-AWS-v3.0": [
+          "1.4"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "EC2 Security Group Allows SSH from Internet",
+      "desc": "Security group sg-0abc123 allows inbound SSH (port 22) from 0.0.0.0/0",
+      "created_time_dt": "2026-03-02T15:25:07.777224+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Exposed SSH port enables brute-force and unauthorized access attacks",
+    "remediation": {
+      "desc": "Restrict SSH access to specific IP ranges using CIDR blocks"
+    },
+    "metadata": {
+      "event_code": "ec2_instance_port_ssh_exposed_to_internet"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0abc123",
+        "name": "sg-0abc123",
+        "type": "AwsEc2SecurityGroup",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-7",
+          "AC-4"
+        ],
+        "CIS-AWS-v3.0": [
+          "5.2"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "RDS Instance Publicly Accessible",
+      "desc": "RDS instance 'prod-db-mysql' is publicly accessible",
+      "created_time_dt": "2026-03-02T15:25:07.777231+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Public database access can lead to data breach \u2014 avg cost $4.88M per IBM DBR 2025",
+    "remediation": {
+      "desc": "Set publicly_accessible to false and use VPC security groups"
+    },
+    "metadata": {
+      "event_code": "rds_instance_publicly_accessible"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:rds:us-east-1:123456789012:db:prod-db-mysql",
+        "name": "prod-db-mysql",
+        "type": "AwsRdsDbInstance",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-7",
+          "AC-3"
+        ],
+        "PCI-DSS-v4.0.1": [
+          "1.3"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "CloudTrail Not Enabled in All Regions",
+      "desc": "CloudTrail is not configured as multi-region trail",
+      "created_time_dt": "2026-03-02T15:25:07.777238+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Missing audit trail in some regions leaves blind spots for incident response",
+    "remediation": {
+      "desc": "Enable multi-region CloudTrail with S3 log delivery and KMS encryption"
+    },
+    "metadata": {
+      "event_code": "cloudtrail_multi_region_enabled"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:cloudtrail:us-east-1:123456789012:trail/mgmt-trail",
+        "name": "mgmt-trail",
+        "type": "AwsCloudTrail",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "AU-2",
+          "AU-3"
+        ],
+        "CIS-AWS-v3.0": [
+          "3.1"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "IAM Policy Allows Privilege Escalation",
+      "desc": "IAM policy 'DevOpsFullAccess' allows iam:CreateRole and iam:AttachRolePolicy",
+      "created_time_dt": "2026-03-02T15:25:07.777245+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Privilege escalation path enables lateral movement across the account",
+    "remediation": {
+      "desc": "Apply least-privilege principle \u2014 remove iam:Create* and iam:Attach* permissions"
+    },
+    "metadata": {
+      "event_code": "iam_policy_allows_privilege_escalation"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:iam::123456789012:policy/DevOpsFullAccess",
+        "name": "DevOpsFullAccess",
+        "type": "AwsIamPolicy",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "AC-6(1)"
+        ],
+        "CIS-AWS-v3.0": [
+          "1.16"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "S3 Bucket Versioning Disabled",
+      "desc": "S3 bucket 'app-config-backup' does not have versioning enabled",
+      "created_time_dt": "2026-03-02T15:25:07.777252+00:00"
+    },
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Without versioning, accidental deletes or overwrites cannot be recovered",
+    "remediation": {
+      "desc": "Enable versioning on the S3 bucket for data protection"
+    },
+    "metadata": {
+      "event_code": "s3_bucket_versioning_enabled"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::app-config-backup",
+        "name": "app-config-backup",
+        "type": "AwsS3Bucket",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "CP-9"
+        ],
+        "CIS-AWS-v3.0": [
+          "2.1.3"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "EBS Volume Not Encrypted",
+      "desc": "EBS volume vol-0def456 attached to production EC2 instance is unencrypted",
+      "created_time_dt": "2026-03-02T15:25:07.777260+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Unencrypted EBS volumes expose data if snapshot is shared or disk is stolen",
+    "remediation": {
+      "desc": "Enable EBS volume encryption using AWS-managed or customer-managed KMS keys"
+    },
+    "metadata": {
+      "event_code": "ec2_ebs_volume_encryption"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:volume/vol-0def456",
+        "name": "vol-0def456",
+        "type": "AwsEc2Volume",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-28"
+        ],
+        "PCI-DSS-v4.0.1": [
+          "3.4.1"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "MFA Not Enabled for IAM Users",
+      "desc": "IAM user 'deploy-bot' does not have MFA enabled",
+      "created_time_dt": "2026-03-02T15:25:07.777267+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Accounts without MFA are vulnerable to credential stuffing and phishing",
+    "remediation": {
+      "desc": "Enable virtual or hardware MFA for all IAM users"
+    },
+    "metadata": {
+      "event_code": "iam_administrator_access_with_mfa"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:iam::123456789012:user/deploy-bot",
+        "name": "deploy-bot",
+        "type": "AwsIamUser",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "IA-2(1)"
+        ],
+        "CIS-AWS-v3.0": [
+          "1.10"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Lambda Function without VPC Configuration",
+      "desc": "Lambda function 'data-processor' runs outside VPC",
+      "created_time_dt": "2026-03-02T15:25:07.777273+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Lambda outside VPC can access public internet but not internal resources securely",
+    "remediation": {
+      "desc": "Configure Lambda function to run within a VPC with proper security groups"
+    },
+    "metadata": {
+      "event_code": "lambda_function_in_vpc"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:lambda:us-east-1:123456789012:function:data-processor",
+        "name": "data-processor",
+        "type": "AwsLambdaFunction",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-7"
+        ],
+        "CIS-AWS-v3.0": [
+          "5.6"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "GuardDuty Not Enabled",
+      "desc": "Amazon GuardDuty is not enabled in region us-east-1",
+      "created_time_dt": "2026-03-02T15:25:07.777280+00:00"
+    },
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "No threat detection for unauthorized access, crypto-mining, or data exfil",
+    "remediation": {
+      "desc": "Enable GuardDuty in all regions for continuous threat monitoring"
+    },
+    "metadata": {
+      "event_code": "guardduty_is_enabled"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:guardduty:us-east-1:123456789012:detector",
+        "name": "guardduty-detector",
+        "type": "AwsGuardDuty",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SI-4"
+        ],
+        "CIS-AWS-v3.0": [
+          "4.1"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "KMS Key Rotation Disabled",
+      "desc": "KMS key 'alias/prod-encryption' does not have automatic rotation enabled",
+      "created_time_dt": "2026-03-02T15:25:07.777286+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Stale encryption keys increase risk window if key material is compromised",
+    "remediation": {
+      "desc": "Enable automatic key rotation for all customer-managed KMS keys"
+    },
+    "metadata": {
+      "event_code": "kms_cmk_rotation_enabled"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:kms:us-east-1:123456789012:key/mrk-abc123",
+        "name": "alias/prod-encryption",
+        "type": "AwsKmsKey",
+        "region": "us-east-1",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "aws",
+      "account": {
+        "uid": "123456789012"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-12(1)"
+        ],
+        "PCI-DSS-v4.0.1": [
+          "3.6"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure Storage Account Allows HTTP",
+      "desc": "Storage account 'prodstorageacct' allows unencrypted HTTP traffic",
+      "created_time_dt": "2026-03-02T15:25:07.777304+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "HTTP traffic can be intercepted \u2014 man-in-the-middle attack vector",
+    "remediation": {
+      "desc": "Set 'enable_https_traffic_only' to true in storage account configuration"
+    },
+    "metadata": {
+      "event_code": "storage_account_https_only"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/prodstorageacct",
+        "name": "prodstorageacct",
+        "type": "AzureStorageAccount",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-8",
+          "SC-13"
+        ],
+        "CIS-Azure-v2.0": [
+          "3.1"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure SQL Server TLS Version Outdated",
+      "desc": "Azure SQL Server 'prod-sql-01' uses TLS 1.0 instead of 1.2",
+      "created_time_dt": "2026-03-02T15:25:07.777312+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Outdated TLS versions have known vulnerabilities (POODLE, BEAST)",
+    "remediation": {
+      "desc": "Set minimum_tls_version to 1.2 for all SQL servers"
+    },
+    "metadata": {
+      "event_code": "sql_server_minimum_tls_version"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Sql/servers/prod-sql-01",
+        "name": "prod-sql-01",
+        "type": "AzureSqlServer",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-8(1)"
+        ],
+        "CIS-Azure-v2.0": [
+          "4.1.2"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure Key Vault Purge Protection Disabled",
+      "desc": "Key Vault 'kv-prod-secrets' has purge protection disabled",
+      "created_time_dt": "2026-03-02T15:25:07.777320+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Secrets can be permanently deleted by attackers \u2014 no recovery possible",
+    "remediation": {
+      "desc": "Enable purge protection and soft delete on all Key Vaults"
+    },
+    "metadata": {
+      "event_code": "keyvault_purge_protection_enabled"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.KeyVault/vaults/kv-prod-secrets",
+        "name": "kv-prod-secrets",
+        "type": "AzureKeyVault",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "CP-9",
+          "SC-12"
+        ],
+        "CIS-Azure-v2.0": [
+          "8.5"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure NSG Allows RDP from Internet",
+      "desc": "Network Security Group 'nsg-web-frontend' allows RDP (3389) from any source",
+      "created_time_dt": "2026-03-02T15:25:07.777326+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Exposed RDP port is a top attack vector for ransomware deployment",
+    "remediation": {
+      "desc": "Restrict RDP access to specific IP ranges or use Azure Bastion"
+    },
+    "metadata": {
+      "event_code": "network_nsg_rdp_restricted"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Network/networkSecurityGroups/nsg-web-frontend",
+        "name": "nsg-web-frontend",
+        "type": "AzureNSG",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-7",
+          "AC-4"
+        ],
+        "CIS-Azure-v2.0": [
+          "6.1"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure Activity Log No Alerts for Policy Changes",
+      "desc": "No alerts configured for Create/Update/Delete Policy Assignment events",
+      "created_time_dt": "2026-03-02T15:25:07.777333+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Unauthorized policy changes may go undetected allowing persistent access",
+    "remediation": {
+      "desc": "Create activity log alerts for policy assignment create, update, and delete"
+    },
+    "metadata": {
+      "event_code": "monitor_alert_policy_assignment"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/providers/Microsoft.Insights/activityLogAlerts",
+        "name": "activity-log-alerts",
+        "type": "AzureActivityLog",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "AU-6",
+          "SI-4"
+        ],
+        "CIS-Azure-v2.0": [
+          "5.2.1"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure Disk Encryption Not Enabled",
+      "desc": "Managed disk 'osdisk-vm-prod-01' is not encrypted with customer-managed key",
+      "created_time_dt": "2026-03-02T15:25:07.777339+00:00"
+    },
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Data at rest without CMK relies solely on platform encryption \u2014 reduced control",
+    "remediation": {
+      "desc": "Enable Azure Disk Encryption with customer-managed keys stored in Key Vault"
+    },
+    "metadata": {
+      "event_code": "compute_disk_encryption_cmk"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Compute/disks/osdisk-vm-prod-01",
+        "name": "osdisk-vm-prod-01",
+        "type": "AzureDisk",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SC-28"
+        ],
+        "CIS-Azure-v2.0": [
+          "7.2"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure Service Principal with Excessive Permissions",
+      "desc": "Service principal 'sp-devops-pipeline' has Contributor role at subscription level",
+      "created_time_dt": "2026-03-02T15:25:07.777345+00:00"
+    },
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "Over-permissioned SP can modify any resource in the subscription",
+    "remediation": {
+      "desc": "Apply least privilege \u2014 scope SP permissions to specific resource groups"
+    },
+    "metadata": {
+      "event_code": "iam_sp_least_privilege"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/providers/Microsoft.Authorization/roleAssignments/ra-001",
+        "name": "sp-devops-pipeline",
+        "type": "AzureServicePrincipal",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "AC-6",
+          "AC-6(1)"
+        ],
+        "CIS-Azure-v2.0": [
+          "1.23"
+        ]
+      },
+      "categories": []
+    }
+  },
+  {
+    "finding_info": {
+      "title": "Azure Defender for Servers Disabled",
+      "desc": "Microsoft Defender for Servers is not enabled on subscription",
+      "created_time_dt": "2026-03-02T15:25:07.777351+00:00"
+    },
+    "severity": "Critical",
+    "status": "New",
+    "status_code": "FAIL",
+    "risk_details": "No advanced threat protection for VMs \u2014 ransomware and crypto-mining undetected",
+    "remediation": {
+      "desc": "Enable Microsoft Defender for Servers (P2) on all subscriptions"
+    },
+    "metadata": {
+      "event_code": "defender_for_servers_enabled"
+    },
+    "resources": [
+      {
+        "uid": "/subscriptions/sub-001/providers/Microsoft.Security/pricings/VirtualMachines",
+        "name": "defender-servers",
+        "type": "AzureDefender",
+        "region": "eastus",
+        "data": {
+          "metadata": {}
+        }
+      }
+    ],
+    "cloud": {
+      "provider": "azure",
+      "account": {
+        "uid": "azure-sub-001"
+      }
+    },
+    "unmapped": {
+      "compliance": {
+        "NIST-800-53-Revision-5": [
+          "SI-3",
+          "SI-4"
+        ],
+        "CIS-Azure-v2.0": [
+          "2.1.1"
+        ]
+      },
+      "categories": []
+    }
+  }
+]

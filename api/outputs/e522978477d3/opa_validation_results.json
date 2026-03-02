@@ -1,0 +1,161 @@
+[
+  {
+    "finding": "S3 Bucket Encryption Missing",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "IAM Root Account Access Key Exists",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "EC2 Security Group Allows SSH from Internet",
+    "has_code": true,
+    "validated": true,
+    "compliant": false,
+    "violations": [
+      "CRITICAL: Security group allows traffic from 0.0.0.0/0"
+    ],
+    "method": "python-fallback",
+    "message": "Python check: 1 potential issues found"
+  },
+  {
+    "finding": "RDS Instance Publicly Accessible",
+    "has_code": true,
+    "validated": true,
+    "compliant": false,
+    "violations": [
+      "CRITICAL: Database may not have storage encryption enabled"
+    ],
+    "method": "python-fallback",
+    "message": "Python check: 1 potential issues found"
+  },
+  {
+    "finding": "CloudTrail Not Enabled in All Regions",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "IAM Policy Allows Privilege Escalation",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "EBS Volume Not Encrypted",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "MFA Not Enabled for IAM Users",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Lambda Function without VPC Configuration",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "KMS Key Rotation Disabled",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Azure Storage Account Allows HTTP",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Azure SQL Server TLS Version Outdated",
+    "has_code": true,
+    "validated": true,
+    "compliant": false,
+    "violations": [
+      "CRITICAL: Database may not have storage encryption enabled"
+    ],
+    "method": "python-fallback",
+    "message": "Python check: 1 potential issues found"
+  },
+  {
+    "finding": "Azure Key Vault Purge Protection Disabled",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Azure NSG Allows RDP from Internet",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Azure Activity Log No Alerts for Policy Changes",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Azure Service Principal with Excessive Permissions",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  },
+  {
+    "finding": "Azure Defender for Servers Disabled",
+    "has_code": true,
+    "validated": true,
+    "compliant": true,
+    "violations": [],
+    "method": "python-fallback",
+    "message": "Python check: All basic policies passed"
+  }
+]

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRC Compliance Engine</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- ═══ Header ═══ -->
+    <header class="app-header">
+        <div class="header-brand">
+            <div class="shield-icon">&#x1F6E1;</div>
+            <div>
+                <h1>GRC Compliance Engine</h1>
+                <p class="subtitle">Multi-Cloud Scan &bull; AI Remediation &bull; FAIR Risk Quantification</p>
+            </div>
+        </div>
+        <div class="header-meta">
+            <span class="badge badge-blue">FAIR Model</span>
+            <span class="badge badge-green">IBM DBR 2025</span>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- ═══ STEP 1: CREDENTIALS ═══ -->
+        <section class="section">
+            <h2 class="section-title"><span class="step-num">1</span> Cloud & API Credentials</h2>
+            <p class="section-desc">Provide credentials for cloud environments and AI services. All keys are encrypted in-memory.</p>
+
+            <div class="cred-grid">
+                <!-- AWS -->
+                <div class="card">
+                    <h3 class="card-title">
+                        <span class="provider-dot aws"></span>AWS IAM Credentials
+                    </h3>
+                    <div class="input-group">
+                        <label for="aws_access_key">Access Key ID</label>
+                        <input type="password" id="aws_access_key" placeholder="AKIA..." autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="aws_secret_key">Secret Access Key</label>
+                        <input type="password" id="aws_secret_key" placeholder="wJalr..." autocomplete="off">
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-outline" onclick="validateAWS()">Validate</button>
+                        <div class="status-box" id="aws_status"></div>
+                    </div>
+                </div>
+
+                <!-- Azure -->
+                <div class="card">
+                    <h3 class="card-title">
+                        <span class="provider-dot azure"></span>Azure Service Principal
+                    </h3>
+                    <div class="input-group">
+                        <label for="azure_client_id">Client ID</label>
+                        <input type="password" id="azure_client_id" placeholder="xxxxxxxx-xxxx-..." autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="azure_tenant_id">Tenant ID</label>
+                        <input type="password" id="azure_tenant_id" placeholder="xxxxxxxx-xxxx-..." autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="azure_client_secret">Client Secret</label>
+                        <input type="password" id="azure_client_secret" placeholder="Client secret value" autocomplete="off">
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-outline" onclick="validateAzure()">Validate</button>
+                        <div class="status-box" id="azure_status"></div>
+                    </div>
+                </div>
+
+                <!-- OpenAI -->
+                <div class="card">
+                    <h3 class="card-title">
+                        <span class="provider-dot openai"></span>OpenAI Configuration
+                    </h3>
+                    <div class="input-group">
+                        <label for="openai_key">API Key</label>
+                        <input type="password" id="openai_key" placeholder="sk-..." autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="openai_model">Model</label>
+                        <select id="openai_model">
+                            {% for model in models %}
+                            <option value="{{ model }}" {% if model == 'gpt-4o' %}selected{% endif %}>{{ model }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-outline" onclick="validateOpenAI()">Validate</button>
+                        <div class="status-box" id="openai_status"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ STEP 2: COMPLIANCE FRAMEWORKS ═══ -->
+        <section class="section">
+            <h2 class="section-title"><span class="step-num">2</span> Compliance Frameworks</h2>
+            <p class="section-desc">Select compliance documents for ChromaDB embeddings and analysis. At least one is required.</p>
+
+            <div class="card">
+                <div class="fw-controls">
+                    <button class="btn btn-xs" onclick="selectAllFrameworks()">Select All</button>
+                    <button class="btn btn-xs btn-ghost" onclick="clearAllFrameworks()">Clear All</button>
+                    <span class="fw-counter" id="fw_counter">0 selected</span>
+                </div>
+                <div class="fw-grid" id="fw_grid">
+                    {% for key, fw in frameworks.items() %}
+                    <label class="fw-checkbox" data-category="{{ fw.category }}">
+                        <input type="checkbox" name="framework" value="{{ key }}">
+                        <span class="fw-name">{{ fw.name }}</span>
+                        <span class="fw-tag">{{ fw.category }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <div class="status-box" id="fw_status"></div>
+            </div>
+        </section>
+
+        <!-- ═══ STEP 3: SCAN SCOPE (Service / Tag / Severity Filters) ═══ -->
+        <section class="section">
+            <h2 class="section-title"><span class="step-num">3</span> Scan Scope <span class="optional-badge">Optional</span></h2>
+            <p class="section-desc">Narrow your Prowler scan to specific services, resource tags, severity levels, or regions to speed up execution.</p>
+
+            <div class="scope-grid">
+                <!-- Service Selector -->
+                <div class="card scope-card">
+                    <h3 class="card-title">Services <span class="scope-hint">(leave empty = all services)</span></h3>
+                    <div class="scope-note warn" id="service_compliance_note" style="display:none;">
+                        <span class="status-icon warn">&#x26A0;</span>
+                        <span><strong>Note:</strong> Prowler's <code>--service</code> and <code>--compliance</code> are mutually exclusive. When services are selected, compliance framework filtering is skipped and services take priority for a faster, targeted scan.</span>
+                    </div>
+
+                    <div class="scope-provider-tabs">
+                        <button class="scope-tab active" data-target="aws_svc_panel" onclick="switchScopeTab(this)">AWS Services</button>
+                        <button class="scope-tab" data-target="azure_svc_panel" onclick="switchScopeTab(this)">Azure Services</button>
+                    </div>
+
+                    <div class="scope-panel" id="aws_svc_panel">
+                        <div class="scope-controls">
+                            <button class="btn btn-xs" onclick="selectAllServices('aws')">Select All</button>
+                            <button class="btn btn-xs btn-ghost" onclick="clearAllServices('aws')">Clear</button>
+                            <input type="text" class="scope-search" id="aws_svc_search" placeholder="Filter AWS services..." oninput="filterServices('aws')">
+                            <span class="fw-counter" id="aws_svc_counter">0 selected</span>
+                        </div>
+                        <div class="svc-grid" id="aws_svc_grid">
+                            {% for svc in aws_services %}
+                            <label class="svc-checkbox">
+                                <input type="checkbox" name="aws_service" value="{{ svc }}">
+                                <span class="svc-name">{{ svc }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="scope-panel" id="azure_svc_panel" style="display:none;">
+                        <div class="scope-controls">
+                            <button class="btn btn-xs" onclick="selectAllServices('azure')">Select All</button>
+                            <button class="btn btn-xs btn-ghost" onclick="clearAllServices('azure')">Clear</button>
+                            <input type="text" class="scope-search" id="azure_svc_search" placeholder="Filter Azure services..." oninput="filterServices('azure')">
+                            <span class="fw-counter" id="azure_svc_counter">0 selected</span>
+                        </div>
+                        <div class="svc-grid" id="azure_svc_grid">
+                            {% for svc in azure_services %}
+                            <label class="svc-checkbox">
+                                <input type="checkbox" name="azure_service" value="{{ svc }}">
+                                <span class="svc-name">{{ svc }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Severity / Tags / Regions -->
+                <div class="card scope-card">
+                    <h3 class="card-title">Severity Levels</h3>
+                    <div class="severity-grid">
+                        {% for lvl in severity_levels %}
+                        <label class="severity-checkbox sev-{{ lvl }}">
+                            <input type="checkbox" name="severity" value="{{ lvl }}">
+                            <span class="sev-label">{{ lvl | capitalize }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+
+                    <h3 class="card-title mt-md">Resource Tags <span class="scope-hint">(AWS only, Key=Value)</span></h3>
+                    <div class="tag-input-group">
+                        <input type="text" id="resource_tag_input" class="input-field" placeholder="e.g. Environment=prod" onkeydown="if(event.key==='Enter'){addResourceTag(); event.preventDefault();}">
+                        <button class="btn btn-xs" onclick="addResourceTag()">+ Add</button>
+                    </div>
+                    <div class="tag-pills" id="resource_tag_pills"></div>
+
+                    <h3 class="card-title mt-md">Regions <span class="scope-hint">(e.g. us-east-1)</span></h3>
+                    <div class="tag-input-group">
+                        <input type="text" id="region_input" class="input-field" placeholder="e.g. us-east-1" onkeydown="if(event.key==='Enter'){addRegion(); event.preventDefault();}">
+                        <button class="btn btn-xs" onclick="addRegion()">+ Add</button>
+                    </div>
+                    <div class="tag-pills" id="region_pills"></div>
+
+                    <h3 class="card-title mt-md">Excluded Services <span class="scope-hint">(services to skip)</span></h3>
+                    <div class="tag-input-group">
+                        <input type="text" id="excluded_svc_input" class="input-field" placeholder="e.g. rds" onkeydown="if(event.key==='Enter'){addExcludedService(); event.preventDefault();}">
+                        <button class="btn btn-xs" onclick="addExcludedService()">+ Add</button>
+                    </div>
+                    <div class="tag-pills" id="excluded_svc_pills"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ STEP 4: POLICY & EXTRACTION ═══ -->
+        <section class="section">
+            <h2 class="section-title"><span class="step-num">4</span> Policy &amp; Extraction</h2>
+            <div class="policy-grid">
+                <!-- OPA Rego -->
+                <div class="card">
+                    <h3 class="card-title">OPA Rego Policy</h3>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="rego_option" value="default" checked onchange="toggleRegoUpload()">
+                            <span>Use Default Policy</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="rego_option" value="custom" onchange="toggleRegoUpload()">
+                            <span>Upload Custom Policy</span>
+                        </label>
+                    </div>
+                    <div id="rego_upload_area" class="upload-area" style="display:none;">
+                        <input type="file" id="rego_file" accept=".rego" onchange="uploadRego()">
+                        <p class="upload-hint">Drag .rego file or click to browse</p>
+                    </div>
+                    <div class="status-box" id="rego_status">
+                        <span class="status-icon info">&#x2139;</span>
+                        <span>Using default security_policy.rego from repository</span>
+                    </div>
+                </div>
+
+                <!-- Steampipe Columns -->
+                <div class="card">
+                    <h3 class="card-title">Steampipe Extraction Columns</h3>
+                    <p class="card-desc">Specify columns to extract from Prowler findings (comma-separated)</p>
+                    <div class="input-group">
+                        <textarea id="steampipe_columns" rows="3" placeholder="name, tags, publicly_accessible, region, encryption_status, arn, status">{{ default_columns | join(', ') }}</textarea>
+                    </div>
+                    <div class="tag-pills" id="column_pills"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ ACTION BUTTON ═══ -->
+        <section class="section action-section">
+            <button class="btn btn-primary btn-large" id="scan_btn" onclick="runPipeline()">
+                <span class="btn-icon">&#x1F50D;</span>
+                SCAN, REMEDIATE &amp; ANALYZE
+            </button>
+            <p class="action-hint">Executes: Prowler Scan → ChromaDB Embeddings → AI Remediation → OPA Check → Steampipe → Risk FAIR → PDF Report → Dashboard</p>
+        </section>
+
+        <!-- ═══ PIPELINE RESULTS ═══ -->
+        <section class="section results-section" id="results_section" style="display:none;">
+            <h2 class="section-title"><span class="step-num">&#x2699;</span> Pipeline Progress</h2>
+
+            <div class="pipeline-grid">
+                <div class="pipeline-steps">
+                    <div class="step-row" id="step_prowler">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">Prowler Cloud Scan</span>
+                            <span class="step-msg" id="msg_prowler">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('prowler')" disabled>Download JSON</button>
+                    </div>
+                    <div class="step-row" id="step_embeddings">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">ChromaDB Embeddings</span>
+                            <span class="step-msg" id="msg_embeddings">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('embeddings')" disabled>Download JSON</button>
+                    </div>
+                    <div class="step-row" id="step_remediation">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">AI Remediation (OpenAI)</span>
+                            <span class="step-msg" id="msg_remediation">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('remediation')" disabled>Download JSON</button>
+                    </div>
+                    <div class="step-row" id="step_opa_validation">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">OPA Rego Policy Check</span>
+                            <span class="step-msg" id="msg_opa_validation">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('opa_validation')" disabled>Download JSON</button>
+                    </div>
+                    <div class="step-row" id="step_steampipe">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">Steampipe Extraction</span>
+                            <span class="step-msg" id="msg_steampipe">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('steampipe')" disabled>Download CSV</button>
+                    </div>
+                    <div class="step-row" id="step_risk_quantification">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">FAIR Risk Quantification</span>
+                            <span class="step-msg" id="msg_risk_quantification">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('risk_quantification')" disabled>Download Report</button>
+                    </div>
+                    <div class="step-row" id="step_report">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">PDF Report Generation</span>
+                            <span class="step-msg" id="msg_report">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('report')" disabled>Download PDF</button>
+                    </div>
+                    <div class="step-row" id="step_dashboard">
+                        <div class="step-indicator pending"></div>
+                        <div class="step-info">
+                            <span class="step-name">Streamlit Dashboard</span>
+                            <span class="step-msg" id="msg_dashboard">Pending...</span>
+                        </div>
+                        <button class="btn btn-xs btn-accent" onclick="launchDashboard()" disabled id="btn_dashboard">Open Dashboard</button>
+                    </div>
+                </div>
+
+                <!-- Live Logs -->
+                <div class="card log-card">
+                    <h3 class="card-title">Live Output</h3>
+                    <div class="log-output" id="log_output">
+                        <div class="log-line"><span class="log-time">--:--:--</span> Waiting for pipeline start...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="summary-grid" id="summary_grid" style="display:none;">
+                <div class="summary-card">
+                    <span class="summary-value" id="sum_findings">0</span>
+                    <span class="summary-label">Total Findings</span>
+                </div>
+                <div class="summary-card critical">
+                    <span class="summary-value" id="sum_critical">0</span>
+                    <span class="summary-label">Critical</span>
+                </div>
+                <div class="summary-card high">
+                    <span class="summary-value" id="sum_high">0</span>
+                    <span class="summary-label">High</span>
+                </div>
+                <div class="summary-card">
+                    <span class="summary-value" id="sum_ale">$0</span>
+                    <span class="summary-label">Total ALE</span>
+                </div>
+                <div class="summary-card">
+                    <span class="summary-value" id="sum_remediations">0</span>
+                    <span class="summary-label">Remediations</span>
+                </div>
+                <div class="summary-card">
+                    <span class="summary-value" id="sum_opa_pass">0</span>
+                    <span class="summary-label">OPA Passed</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>GRC Compliance Engine &mdash; FAIR Risk Quantification &bull; IBM Data Breach Report 2025 &bull; Prowler + ChromaDB + OpenAI + OPA</p>
+    </footer>
+
+    <script src="/static/js/script.js"></script>
+</body>
+</html>

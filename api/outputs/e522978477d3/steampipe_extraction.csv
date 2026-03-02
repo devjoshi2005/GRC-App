@@ -1,0 +1,18 @@
+name,tags,publicly_accessible,region,encryption_status,arn,status,instance_type
+prod-data-lake,{},No,us-east-1,Not Encrypted,arn:aws:s3:::prod-data-lake,New,AwsS3Bucket
+root,{},No,us-east-1,Unknown,arn:aws:iam::123456789012:root,New,AwsIamUser
+sg-0abc123,{},Yes,us-east-1,Unknown,arn:aws:ec2:us-east-1:123456789012:security-group/sg-0abc123,New,AwsEc2SecurityGroup
+prod-db-mysql,{},Yes,us-east-1,Unknown,arn:aws:rds:us-east-1:123456789012:db:prod-db-mysql,New,AwsRdsDbInstance
+mgmt-trail,{},No,us-east-1,Unknown,arn:aws:cloudtrail:us-east-1:123456789012:trail/mgmt-trail,New,AwsCloudTrail
+DevOpsFullAccess,{},No,us-east-1,Unknown,arn:aws:iam::123456789012:policy/DevOpsFullAccess,New,AwsIamPolicy
+vol-0def456,{},No,us-east-1,Not Encrypted,arn:aws:ec2:us-east-1:123456789012:volume/vol-0def456,New,AwsEc2Volume
+deploy-bot,{},No,us-east-1,Unknown,arn:aws:iam::123456789012:user/deploy-bot,New,AwsIamUser
+data-processor,{},No,us-east-1,Unknown,arn:aws:lambda:us-east-1:123456789012:function:data-processor,New,AwsLambdaFunction
+alias/prod-encryption,{},No,us-east-1,Unknown,arn:aws:kms:us-east-1:123456789012:key/mrk-abc123,New,AwsKmsKey
+prodstorageacct,{},No,eastus,Unknown,/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/prodstorageacct,New,AzureStorageAccount
+prod-sql-01,{},No,eastus,Unknown,/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Sql/servers/prod-sql-01,New,AzureSqlServer
+kv-prod-secrets,{},No,eastus,Unknown,/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.KeyVault/vaults/kv-prod-secrets,New,AzureKeyVault
+nsg-web-frontend,{},Yes,eastus,Unknown,/subscriptions/sub-001/resourceGroups/rg-prod/providers/Microsoft.Network/networkSecurityGroups/nsg-web-frontend,New,AzureNSG
+activity-log-alerts,{},No,eastus,Unknown,/subscriptions/sub-001/providers/Microsoft.Insights/activityLogAlerts,New,AzureActivityLog
+sp-devops-pipeline,{},No,eastus,Unknown,/subscriptions/sub-001/providers/Microsoft.Authorization/roleAssignments/ra-001,New,AzureServicePrincipal
+defender-servers,{},No,eastus,Unknown,/subscriptions/sub-001/providers/Microsoft.Security/pricings/VirtualMachines,New,AzureDefender
