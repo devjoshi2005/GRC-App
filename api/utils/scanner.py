@@ -21,21 +21,85 @@ we use ``--service`` (faster targeted scan) and log a note.
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
+import threading
 from pathlib import Path
+
+# ─── Discovery caches (avoid re-spawning CLI on every scan) ───────
+_fw_cache: dict[str, list[str]] = {}
+_svc_cache: dict[str, list[str]] = {}
+
+
+# ─── Prowler executable resolution ────────────────────────────────
+
+def _get_prowler_cmd() -> str:
+    """
+    Return the absolute path to the ``prowler`` executable.
+
+    Strategy (in order):
+      1. ``sys.prefix + /bin/prowler`` — works inside a venv (sys.prefix
+         points at the venv root, *not* the system Python).
+      2. Unresolved ``sys.executable`` parent — the directory of the
+         interpreter **without** following symlinks, so it stays inside
+         the venv ``bin/``.
+      3. ``shutil.which("prowler")`` — searches the current PATH.
+      4. Bare ``"prowler"`` — last resort.
+    """
+    # 1. venv root via sys.prefix (most reliable for venvs)
+    venv_bin_prefix = Path(sys.prefix) / "bin" / "prowler"
+    if venv_bin_prefix.is_file():
+        return str(venv_bin_prefix)
+
+    # 2. Unresolved parent of sys.executable (don't follow symlinks)
+    exe_parent = Path(sys.executable).parent  # no .resolve()!
+    candidate = exe_parent / "prowler"
+    if candidate.is_file():
+        return str(candidate)
+
+    # 3. shutil.which — searches PATH
+    which_result = shutil.which("prowler")
+    if which_result:
+        return which_result
+
+    return "prowler"  # fall back to bare name
 
 
 # ─── Prowler availability ─────────────────────────────────────────
 
+_prowler_check_error: str = ""   # stores stderr from the last availability check
+
 def _prowler_available() -> bool:
-    """Check if the prowler CLI is installed and reachable."""
+    """Check if the prowler CLI is installed and reachable.
+
+    Strategy:
+      1. Quick file-existence check (instant).
+      2. ``prowler --version`` with a generous 120 s timeout — prowler is
+         a large Python package and cold-starts can take 30-60 s.
+    """
+    global _prowler_check_error
+    _prowler_check_error = ""
     try:
+        cmd = _get_prowler_cmd()
+        # Fast path: if the file simply doesn't exist, fail immediately
+        if not Path(cmd).is_file() and not shutil.which(cmd):
+            _prowler_check_error = f"prowler binary not found at {cmd}"
+            return False
+
         r = subprocess.run(
-            ["prowler", "--version"],
-            capture_output=True, text=True, timeout=10,
+            [cmd, "--version"],
+            capture_output=True, text=True, timeout=120,
         )
+        if r.returncode != 0:
+            _prowler_check_error = r.stderr[:500] or r.stdout[:500] or f"exit code {r.returncode}"
         return r.returncode == 0
-    except Exception:
+    except subprocess.TimeoutExpired:
+        # Prowler took too long but the binary exists — assume it works
+        _prowler_check_error = "version check timed out (120 s) — proceeding anyway"
+        return True
+    except Exception as e:
+        _prowler_check_error = str(e)[:300]
         return False
 
 
@@ -54,7 +118,7 @@ def _discover_frameworks_cli(provider: str) -> list[str]:
     """Fallback: ``prowler <provider> --list-compliance --no-banner``."""
     try:
         result = subprocess.run(
-            ["prowler", provider, "--list-compliance", "--no-banner"],
+            [_get_prowler_cmd(), provider, "--list-compliance", "--no-banner"],
             capture_output=True, text=True, timeout=60,
         )
         frameworks = []
@@ -71,12 +135,17 @@ def _discover_frameworks_cli(provider: str) -> list[str]:
 def discover_compliance_frameworks(provider: str, log_cb=None) -> list[str]:
     """
     Discover every compliance framework prowler supports for *provider*.
-    Tries the Python import first, falls back to the CLI.
+    Tries the Python import first, falls back to the CLI.  Results cached.
     """
+    if provider in _fw_cache:
+        if log_cb:
+            log_cb(f"  Prowler {provider}: {len(_fw_cache[provider])} frameworks (cached)")
+        return _fw_cache[provider]
     frameworks = _discover_frameworks_python(provider)
     if not frameworks:
         frameworks = _discover_frameworks_cli(provider)
     frameworks = sorted(set(frameworks))
+    _fw_cache[provider] = frameworks
     if log_cb:
         log_cb(
             f"  Prowler {provider}: {len(frameworks)} compliance frameworks available"
@@ -99,7 +168,7 @@ def _discover_services_cli(provider: str) -> list[str]:
     """Fallback: ``prowler <provider> --list-services --no-banner``."""
     try:
         result = subprocess.run(
-            ["prowler", provider, "--list-services", "--no-banner"],
+            [_get_prowler_cmd(), provider, "--list-services", "--no-banner"],
             capture_output=True, text=True, timeout=60,
         )
         services = []
@@ -113,10 +182,15 @@ def _discover_services_cli(provider: str) -> list[str]:
 
 
 def discover_services(provider: str, log_cb=None) -> list[str]:
-    """Discover every service prowler can scan for *provider*."""
+    """Discover every service prowler can scan for *provider*.  Results cached."""
+    if provider in _svc_cache:
+        if log_cb:
+            log_cb(f"  Prowler {provider}: {len(_svc_cache[provider])} services (cached)")
+        return _svc_cache[provider]
     services = _discover_services_python(provider)
     if not services:
         services = _discover_services_cli(provider)
+    _svc_cache[provider] = services
     if log_cb:
         log_cb(f"  Prowler {provider}: {len(services)} services available")
     return services
@@ -127,10 +201,19 @@ def validate_services(
     available: list[str],
     log_cb=None,
 ) -> list[str]:
-    """Return only user-selected services that actually exist in prowler."""
-    valid = []
+    """Return only user-selected services that actually exist in prowler.
+
+    Deduplicates the input list so the same service isn't scanned twice.
+    """
+    seen: set[str] = set()
+    valid: list[str] = []
     for svc in user_services:
         svc_lower = svc.strip().lower()
+        if svc_lower in seen:
+            if log_cb:
+                log_cb(f"    service '{svc_lower}' — duplicate (skipped)")
+            continue
+        seen.add(svc_lower)
         if svc_lower in available:
             valid.append(svc_lower)
             if log_cb:
@@ -227,6 +310,8 @@ def run_prowler_scan(
     azure_creds: dict | None,
     output_dir: str,
     compliance_frameworks: list[str] | None = None,
+    aws_frameworks: list[str] | None = None,
+    azure_frameworks: list[str] | None = None,
     services: list[str] | None = None,
     resource_tags: list[str] | None = None,
     resource_arns: list[str] | None = None,
@@ -237,6 +322,11 @@ def run_prowler_scan(
 ) -> dict:
     """
     Orchestrate real Prowler scans for AWS and/or Azure.
+
+    Framework arguments:
+      - *aws_frameworks*: Direct Prowler framework IDs for AWS (e.g. ``["cis_5.0_aws"]``)
+      - *azure_frameworks*: Direct Prowler framework IDs for Azure (e.g. ``["cis_5.0_azure"]``)
+      - *compliance_frameworks*: Legacy generic keys (used as fallback for keyword matching)
 
     Scan-scope arguments (all optional):
       - *services*: Only scan these services  (e.g. ``["s3","iam","ec2"]``)
@@ -266,9 +356,13 @@ def run_prowler_scan(
     all_findings: list = []
 
     if not _prowler_available():
+        prowler_path = _get_prowler_cmd()
+        detail = _prowler_check_error or "unknown reason"
         msg = (
-            "Prowler CLI not found. Install with: pip install prowler\n"
-            "See https://docs.prowler.com/projects/prowler-open-source/en/latest/"
+            f"Prowler CLI not working (path: {prowler_path}). "
+            f"Reason: {detail}. "
+            f"sys.prefix={sys.prefix}, sys.executable={sys.executable}. "
+            f"Make sure prowler is installed: pip install prowler"
         )
         if log_callback:
             log_callback(f"ERROR: {msg}")
@@ -290,14 +384,14 @@ def run_prowler_scan(
         "excluded_services": excluded_services or [],
     }
 
-    # ── AWS ────────────────────────────────────────────────────────
-    if aws_creds:
+    # ── Prepare scan arguments per provider (before launching threads) ──
+
+    def _prepare_aws():
         if log_callback:
             log_callback("Discovering AWS compliance frameworks & services...")
         available_aws_fw = discover_compliance_frameworks("aws", log_callback)
         available_aws_svc = discover_services("aws", log_callback)
 
-        # Validate services
         valid_aws_svc: list[str] = []
         if scan_opts["services"]:
             if log_callback:
@@ -306,23 +400,30 @@ def run_prowler_scan(
                 scan_opts["services"], available_aws_svc, log_callback,
             )
 
-        # Validate compliance frameworks
+        # Use direct framework IDs if provided; fall back to legacy keyword matching
         aws_fw: list[str] = []
-        if compliance_frameworks and available_aws_fw:
+        if aws_frameworks:
+            # Direct Prowler framework IDs from the frontend
+            aws_fw = [f for f in aws_frameworks if f in available_aws_fw]
+            skipped = [f for f in aws_frameworks if f not in available_aws_fw]
+            if log_callback:
+                log_callback(f"  AWS frameworks selected: {aws_fw}")
+                for s in skipped:
+                    log_callback(f"    '{s}' — not available in this prowler version (skipped)")
+        elif compliance_frameworks and available_aws_fw:
             if log_callback:
                 log_callback("Cross-checking user selections against AWS frameworks:")
             aws_fw = match_frameworks(
                 compliance_frameworks, available_aws_fw, "aws", log_callback,
             )
 
-        # Log strategy
         if valid_aws_svc and aws_fw:
             if log_callback:
                 log_callback(
                     "  ⚠ --service and --compliance are mutually exclusive; "
                     "using --service (targeted scan) — compliance filter skipped"
                 )
-            aws_fw = []  # service takes priority
+            aws_fw = []
 
         if log_callback:
             if valid_aws_svc:
@@ -331,17 +432,9 @@ def run_prowler_scan(
                 log_callback(f"  → AWS compliance frameworks: {aws_fw}")
             else:
                 log_callback("  → scanning ALL AWS checks (no filter)")
-            log_callback("Starting Prowler AWS scan...")
+        return aws_fw, valid_aws_svc
 
-        aws_result = _scan_aws(
-            aws_creds, output_dir, aws_fw, valid_aws_svc, scan_opts, log_callback,
-        )
-        results["aws"] = aws_result
-        if aws_result.get("findings"):
-            all_findings.extend(aws_result["findings"])
-
-    # ── Azure ─────────────────────────────────────────────────────
-    if azure_creds:
+    def _prepare_azure():
         if log_callback:
             log_callback("Discovering Azure compliance frameworks & services...")
         available_az_fw = discover_compliance_frameworks("azure", log_callback)
@@ -355,8 +448,16 @@ def run_prowler_scan(
                 scan_opts["services"], available_az_svc, log_callback,
             )
 
+        # Use direct framework IDs if provided; fall back to legacy keyword matching
         az_fw: list[str] = []
-        if compliance_frameworks and available_az_fw:
+        if azure_frameworks:
+            az_fw = [f for f in azure_frameworks if f in available_az_fw]
+            skipped = [f for f in azure_frameworks if f not in available_az_fw]
+            if log_callback:
+                log_callback(f"  Azure frameworks selected: {az_fw}")
+                for s in skipped:
+                    log_callback(f"    '{s}' — not available in this prowler version (skipped)")
+        elif compliance_frameworks and available_az_fw:
             if log_callback:
                 log_callback("Cross-checking user selections against Azure frameworks:")
             az_fw = match_frameworks(
@@ -378,14 +479,77 @@ def run_prowler_scan(
                 log_callback(f"  → Azure compliance frameworks: {az_fw}")
             else:
                 log_callback("  → scanning ALL Azure checks (no filter)")
-            log_callback("Starting Prowler Azure scan...")
+        return az_fw, valid_az_svc
 
-        az_result = _scan_azure(
-            azure_creds, output_dir, az_fw, valid_az_svc, scan_opts, log_callback,
-        )
-        results["azure"] = az_result
-        if az_result.get("findings"):
-            all_findings.extend(az_result["findings"])
+    # Prepare arguments (fast — only discovery calls)
+    aws_scan_args = None
+    azure_scan_args = None
+    if aws_creds:
+        aws_scan_args = _prepare_aws()
+    if azure_creds:
+        azure_scan_args = _prepare_azure()
+
+    # ── Run AWS + Azure scans in parallel ─────────────────────────
+    aws_holder: dict = {}
+    azure_holder: dict = {}
+
+    def _run_aws():
+        aws_fw, valid_aws_svc = aws_scan_args
+        aws_out = os.path.join(output_dir, "aws")
+        os.makedirs(aws_out, exist_ok=True)
+        if log_callback:
+            log_callback("Starting Prowler AWS scan...")
+        try:
+            aws_holder["result"] = _scan_aws(
+                aws_creds, aws_out, aws_fw, valid_aws_svc, scan_opts, log_callback,
+            )
+        except Exception as e:
+            if log_callback:
+                log_callback(f"  AWS scan thread error: {str(e)[:300]}")
+            aws_holder["result"] = {
+                "success": False, "findings": [], "finding_count": 0,
+                "message": f"AWS scan error: {str(e)[:300]}",
+            }
+
+    def _run_azure():
+        az_fw, valid_az_svc = azure_scan_args
+        az_out = os.path.join(output_dir, "azure")
+        os.makedirs(az_out, exist_ok=True)
+        if log_callback:
+            log_callback("Starting Prowler Azure scan...")
+        try:
+            azure_holder["result"] = _scan_azure(
+                azure_creds, az_out, az_fw, valid_az_svc, scan_opts, log_callback,
+            )
+        except Exception as e:
+            if log_callback:
+                log_callback(f"  Azure scan thread error: {str(e)[:300]}")
+            azure_holder["result"] = {
+                "success": False, "findings": [], "finding_count": 0,
+                "message": f"Azure scan error: {str(e)[:300]}",
+            }
+
+    threads: list[threading.Thread] = []
+    if aws_creds and aws_scan_args:
+        t = threading.Thread(target=_run_aws, daemon=True)
+        threads.append(t)
+    if azure_creds and azure_scan_args:
+        t = threading.Thread(target=_run_azure, daemon=True)
+        threads.append(t)
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    if "result" in aws_holder:
+        results["aws"] = aws_holder["result"]
+        if aws_holder["result"].get("findings"):
+            all_findings.extend(aws_holder["result"]["findings"])
+    if "result" in azure_holder:
+        results["azure"] = azure_holder["result"]
+        if azure_holder["result"].get("findings"):
+            all_findings.extend(azure_holder["result"]["findings"])
 
     # ── Combined output ───────────────────────────────────────────
     combined_path = os.path.join(output_dir, "prowler_combined_findings.json")
@@ -419,7 +583,7 @@ def _scan_aws(
     if creds.get("region"):
         env["AWS_DEFAULT_REGION"] = creds["region"]
 
-    cmd = ["prowler", "aws", "-M", "json-ocsf", "-o", output_dir, "--no-banner"]
+    cmd = [_get_prowler_cmd(), "aws", "-M", "json-ocsf", "-o", output_dir, "--no-banner"]
 
     # --service and --compliance are mutually exclusive (argparse)
     if prowler_services:
@@ -439,9 +603,16 @@ def _scan_aws(
     if scan_opts.get("severity"):
         cmd.extend(["--severity"] + scan_opts["severity"])
 
-    # Region filter
+    # Region filter — also set AWS_DEFAULT_REGION so prowler knows the region
     if scan_opts.get("regions"):
         cmd.extend(["-f"] + scan_opts["regions"])
+        if "AWS_DEFAULT_REGION" not in env:
+            env["AWS_DEFAULT_REGION"] = scan_opts["regions"][0]
+
+    # If no region specified anywhere, default to us-east-1 so prowler
+    # doesn't silently skip scanning due to a missing region.
+    if "AWS_DEFAULT_REGION" not in env:
+        env["AWS_DEFAULT_REGION"] = "us-east-1"
 
     # Excluded services — works with everything
     if scan_opts.get("excluded_services"):
@@ -472,9 +643,13 @@ def _scan_azure(
         env["AZURE_SUBSCRIPTION_ID"] = creds["subscription_id"]
 
     cmd = [
-        "prowler", "azure", "--sp-env-auth",
+        _get_prowler_cmd(), "azure", "--sp-env-auth",
         "-M", "json-ocsf", "-o", output_dir, "--no-banner",
     ]
+
+    # Pass subscription-id explicitly if provided
+    if creds.get("subscription_id"):
+        cmd.extend(["--subscription-id", creds["subscription_id"]])
 
     if prowler_services:
         cmd.extend(["--service"] + prowler_services)
@@ -507,58 +682,120 @@ def _exec_prowler(
     log_cb,
 ) -> dict:
     """Execute a prowler command and collect JSON output findings."""
+    import time as _time
+    t0 = _time.monotonic()
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, env=env, timeout=1800,
         )
+        elapsed = _time.monotonic() - t0
+        if log_cb:
+            log_cb(f"  prowler finished in {elapsed:.1f}s (exit code {result.returncode})")
         if log_cb and result.stdout:
-            for line in result.stdout.strip().splitlines()[-10:]:
+            for line in result.stdout.strip().splitlines()[-15:]:
                 log_cb(f"  prowler[stdout]: {line}")
         if log_cb and result.stderr:
-            for line in result.stderr.strip().splitlines()[-20:]:
+            stderr_lines = result.stderr.strip().splitlines()
+            # Log more stderr for diagnosis — auth failures appear here
+            for line in stderr_lines[-30:]:
                 log_cb(f"  prowler[stderr]: {line}")
-        if log_cb and result.returncode != 0:
-            log_cb(f"  prowler exit code: {result.returncode}")
+
+        # If prowler finished in under 10 seconds, it likely failed to authenticate
+        if elapsed < 10 and log_cb:
+            log_cb(f"  ⚠ {label}: Scan completed in {elapsed:.1f}s — suspiciously fast. "
+                   f"Check credentials and ensure the cloud account has resources.")
+
+        # Detect common auth failures in stderr
+        stderr_lower = (result.stderr or "").lower()
+        auth_error = False
+        for pattern in ("invalidclienttokenid", "signaturedoesnotmatch",
+                        "accessdenied", "authorizationerror", "expiredtoken",
+                        "invalid credential", "could not connect",
+                        "unable to locate credentials", "no credentials"):
+            if pattern in stderr_lower:
+                auth_error = True
+                if log_cb:
+                    log_cb(f"  ⚠ {label}: Possible authentication failure detected in stderr")
+                break
 
         # Locate output JSON.
-        # Prowler writes <output_dir>/<filename>.ocsf.json
-        json_files = sorted(Path(output_dir).glob("*.ocsf.json"))
+        # Prowler writes output into subdirectories under -o, e.g.
+        # <output_dir>/compliance/<filename>.ocsf.json  or a timestamped
+        # subfolder.  We search recursively.
+        # Prowler writes to nested dirs, find ALL json output
+        all_json = sorted(Path(output_dir).rglob("*.json"))
+        if log_cb:
+            log_cb(f"  {label}: found {len(all_json)} JSON files in output dir")
+            for jf in all_json[:10]:
+                log_cb(f"    → {jf.relative_to(output_dir)} ({jf.stat().st_size} bytes)")
+
+        # Prefer .ocsf.json, then regular .json
+        json_files = sorted(p for p in all_json if p.name.endswith(".ocsf.json"))
         if not json_files:
             json_files = sorted(
-                p for p in Path(output_dir).glob("*.json")
-                if "combined" not in p.name
+                p for p in all_json
+                if p.stat().st_size > 10  # skip empty/stub files
+                and "combined" not in p.name
+                and "prowler_findings" not in p.name
             )
+        if not json_files:
+            csv_files = sorted(Path(output_dir).rglob("*.csv"))
+            if csv_files and log_cb:
+                log_cb(f"  {label}: Found CSV output but no JSON — check prowler -M flag")
 
         if json_files:
-            with open(json_files[-1]) as f:
-                findings = json.load(f)
-            if isinstance(findings, dict):
-                # Some prowler versions wrap in {"findings": [...]}
-                findings = findings.get("findings", [findings])
+            # Load ALL json files (prowler may split output across multiple files)
+            all_findings = []
+            for jf in json_files:
+                try:
+                    with open(jf) as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        data = data.get("findings", [data])
+                    if isinstance(data, list):
+                        all_findings.extend(data)
+                    if log_cb:
+                        log_cb(f"  {label}: loaded {len(data) if isinstance(data, list) else 1} findings from {jf.name}")
+                except Exception as e:
+                    if log_cb:
+                        log_cb(f"  {label}: failed to parse {jf.name}: {str(e)[:100]}")
+
             if log_cb:
                 log_cb(
-                    f"  {label} scan produced {len(findings)} findings"
-                    f" → {json_files[-1].name}"
+                    f"  {label} scan produced {len(all_findings)} findings"
+                    f" from {len(json_files)} file(s)"
                 )
             return {
                 "success": True,
-                "finding_count": len(findings),
-                "findings": findings,
+                "finding_count": len(all_findings),
+                "findings": all_findings,
                 "output_file": str(json_files[-1]),
-                "message": f"{label} scan complete — {len(findings)} findings",
+                "message": f"{label} scan complete — {len(all_findings)} findings",
             }
 
         if log_cb:
             log_cb(f"  {label}: no JSON output file found in {output_dir}")
             # List what IS in the directory to aid debugging
-            contents = list(Path(output_dir).iterdir())
-            log_cb(f"  {label}: output dir contents: {[c.name for c in contents]}")
+            try:
+                all_files = list(Path(output_dir).rglob("*"))
+                file_names = [str(f.relative_to(output_dir)) for f in all_files if f.is_file()]
+                dir_names = [str(f.relative_to(output_dir)) for f in all_files if f.is_dir()]
+                log_cb(f"  {label}: output dir files: {file_names}")
+                log_cb(f"  {label}: output dir dirs: {dir_names}")
+            except Exception:
+                log_cb(f"  {label}: could not list output dir contents")
+            if auth_error:
+                log_cb(f"  {label}: No output likely due to credential/auth failure — check your {label} credentials")
 
         return {
-            "success": True,
+            "success": not auth_error,
             "finding_count": 0,
             "findings": [],
-            "message": f"{label} scan completed — no JSON output file found",
+            "message": (
+                f"{label}: Authentication failure — check credentials"
+                if auth_error
+                else f"{label} scan completed — no JSON output file found"
+            ),
         }
 
     except subprocess.TimeoutExpired:

@@ -6,14 +6,21 @@ from pathlib import Path
 # Base paths
 BASE_DIR = Path(__file__).parent
 POLICY_DIR = BASE_DIR / "policy"
-OUTPUT_DIR = BASE_DIR / "outputs"
-UPLOAD_DIR = BASE_DIR / "uploads"
 
-# Ensure directories exist
-OUTPUT_DIR.mkdir(exist_ok=True)
-UPLOAD_DIR.mkdir(exist_ok=True)
+# On Vercel (read-only FS) write to /tmp; locally use api/outputs and api/uploads
+_VERCEL = os.environ.get("VERCEL", "")
+if _VERCEL:
+    OUTPUT_DIR = Path("/tmp/grc_outputs")
+    UPLOAD_DIR = Path("/tmp/grc_uploads")
+else:
+    OUTPUT_DIR = BASE_DIR / "outputs"
+    UPLOAD_DIR = BASE_DIR / "uploads"
 
-# Compliance frameworks (25+)
+# Ensure writable directories exist
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Legacy combined frameworks dict (kept for backward compat with embeddings/report)
 COMPLIANCE_FRAMEWORKS = {
     "pci_dss": {"name": "PCI-DSS v4.0.1", "category": "Financial"},
     "hipaa": {"name": "HIPAA", "category": "Healthcare"},
@@ -41,6 +48,73 @@ COMPLIANCE_FRAMEWORKS = {
     "cmmc": {"name": "CMMC v2.0", "category": "Defense"},
     "nist_iso_mapping": {"name": "NIST-ISO Mapping", "category": "Framework"},
     "cis_gcp": {"name": "CIS GCP Foundations v2.0", "category": "Cloud"},
+}
+
+# ─── Prowler-native compliance frameworks (actual --compliance values) ────
+# These are the real IDs accepted by `prowler aws --compliance` / `prowler azure --compliance`.
+# The key is the exact prowler framework ID; the value has a friendly display name + category.
+
+AWS_COMPLIANCE_FRAMEWORKS = {
+    "cis_5.0_aws":                                    {"name": "CIS AWS v5.0",                        "category": "CIS Benchmark"},
+    "cis_4.0_aws":                                    {"name": "CIS AWS v4.0",                        "category": "CIS Benchmark"},
+    "cis_3.0_aws":                                    {"name": "CIS AWS v3.0",                        "category": "CIS Benchmark"},
+    "cis_2.0_aws":                                    {"name": "CIS AWS v2.0",                        "category": "CIS Benchmark"},
+    "cis_1.5_aws":                                    {"name": "CIS AWS v1.5",                        "category": "CIS Benchmark"},
+    "cis_1.4_aws":                                    {"name": "CIS AWS v1.4",                        "category": "CIS Benchmark"},
+    "pci_4.0_aws":                                    {"name": "PCI-DSS v4.0",                        "category": "Financial"},
+    "pci_3.2.1_aws":                                  {"name": "PCI-DSS v3.2.1",                      "category": "Financial"},
+    "hipaa_aws":                                      {"name": "HIPAA",                                "category": "Healthcare"},
+    "nist_800_53_revision_5_aws":                     {"name": "NIST 800-53 Rev 5",                   "category": "Government"},
+    "nist_800_53_revision_4_aws":                     {"name": "NIST 800-53 Rev 4",                   "category": "Government"},
+    "nist_800_171_revision_2_aws":                    {"name": "NIST 800-171 Rev 2",                  "category": "Defense"},
+    "nist_csf_2.0_aws":                               {"name": "NIST CSF 2.0",                        "category": "Framework"},
+    "nist_csf_1.1_aws":                               {"name": "NIST CSF 1.1",                        "category": "Framework"},
+    "iso27001_2022_aws":                              {"name": "ISO 27001:2022",                      "category": "International"},
+    "iso27001_2013_aws":                              {"name": "ISO 27001:2013",                      "category": "International"},
+    "soc2_aws":                                       {"name": "SOC 2",                                "category": "Audit"},
+    "gdpr_aws":                                       {"name": "GDPR",                                 "category": "Privacy"},
+    "fedramp_moderate_revision_4_aws":                {"name": "FedRAMP Moderate Rev 4",              "category": "Government"},
+    "fedramp_low_revision_4_aws":                     {"name": "FedRAMP Low Rev 4",                   "category": "Government"},
+    "fedramp_20x_ksi_low_aws":                        {"name": "FedRAMP 20x KSI Low",                 "category": "Government"},
+    "aws_foundational_security_best_practices_aws":   {"name": "AWS Foundational Security BP",        "category": "Cloud"},
+    "aws_foundational_technical_review_aws":          {"name": "AWS Foundational Technical Review",   "category": "Cloud"},
+    "aws_well_architected_framework_security_pillar_aws": {"name": "AWS Well-Arch Security Pillar",   "category": "Cloud"},
+    "aws_well_architected_framework_reliability_pillar_aws": {"name": "AWS Well-Arch Reliability",    "category": "Cloud"},
+    "aws_account_security_onboarding_aws":            {"name": "AWS Account Security Onboarding",     "category": "Cloud"},
+    "aws_audit_manager_control_tower_guardrails_aws": {"name": "AWS Audit Manager / Control Tower",   "category": "Cloud"},
+    "mitre_attack_aws":                               {"name": "MITRE ATT&CK",                        "category": "Threat Intel"},
+    "cisa_aws":                                       {"name": "CISA",                                 "category": "Government"},
+    "ens_rd2022_aws":                                 {"name": "ENS RD2022 (Spain)",                  "category": "Regional"},
+    "nis2_aws":                                       {"name": "NIS2 Directive",                       "category": "EU Regulation"},
+    "ffiec_aws":                                      {"name": "FFIEC",                                "category": "Financial"},
+    "rbi_cyber_security_framework_aws":               {"name": "RBI Cyber Security (India)",           "category": "Regional"},
+    "kisa_isms_p_2023_aws":                           {"name": "KISA ISMS-P 2023",                    "category": "Regional"},
+    "kisa_isms_p_2023_korean_aws":                    {"name": "KISA ISMS-P 2023 (Korean)",           "category": "Regional"},
+    "ccc_aws":                                        {"name": "CCC",                                  "category": "Framework"},
+    "c5_aws":                                         {"name": "C5 (Germany BSI)",                    "category": "Regional"},
+    "gxp_eu_annex_11_aws":                            {"name": "GxP EU Annex 11",                     "category": "Pharma"},
+    "gxp_21_cfr_part_11_aws":                         {"name": "GxP 21 CFR Part 11",                  "category": "Pharma"},
+    "prowler_threatscore_aws":                        {"name": "Prowler ThreatScore",                  "category": "Scoring"},
+}
+
+AZURE_COMPLIANCE_FRAMEWORKS = {
+    "cis_5.0_azure":                                  {"name": "CIS Azure v5.0",                      "category": "CIS Benchmark"},
+    "cis_4.0_azure":                                  {"name": "CIS Azure v4.0",                      "category": "CIS Benchmark"},
+    "cis_3.0_azure":                                  {"name": "CIS Azure v3.0",                      "category": "CIS Benchmark"},
+    "cis_2.1_azure":                                  {"name": "CIS Azure v2.1",                      "category": "CIS Benchmark"},
+    "cis_2.0_azure":                                  {"name": "CIS Azure v2.0",                      "category": "CIS Benchmark"},
+    "pci_4.0_azure":                                  {"name": "PCI-DSS v4.0",                        "category": "Financial"},
+    "hipaa_azure":                                    {"name": "HIPAA",                                "category": "Healthcare"},
+    "iso27001_2022_azure":                            {"name": "ISO 27001:2022",                      "category": "International"},
+    "soc2_azure":                                     {"name": "SOC 2",                                "category": "Audit"},
+    "fedramp_20x_ksi_low_azure":                      {"name": "FedRAMP 20x KSI Low",                 "category": "Government"},
+    "mitre_attack_azure":                             {"name": "MITRE ATT&CK",                        "category": "Threat Intel"},
+    "ens_rd2022_azure":                               {"name": "ENS RD2022 (Spain)",                  "category": "Regional"},
+    "nis2_azure":                                     {"name": "NIS2 Directive",                       "category": "EU Regulation"},
+    "rbi_cyber_security_framework_azure":             {"name": "RBI Cyber Security (India)",           "category": "Regional"},
+    "ccc_azure":                                      {"name": "CCC",                                  "category": "Framework"},
+    "c5_azure":                                       {"name": "C5 (Germany BSI)",                    "category": "Regional"},
+    "prowler_threatscore_azure":                      {"name": "Prowler ThreatScore",                  "category": "Scoring"},
 }
 
 # OpenAI models

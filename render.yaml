@@ -1,0 +1,13 @@
+# Render deployment config
+# Docs: https://docs.render.com/blueprint-spec
+
+services:
+  - type: web
+    name: grc-compliance-engine
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free          # or "starter" ($7/mo) for more RAM
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+    healthCheckPath: /api/config

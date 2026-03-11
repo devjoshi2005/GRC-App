@@ -85,7 +85,7 @@
                         <label for="openai_model">Model</label>
                         <select id="openai_model">
                             {% for model in models %}
-                            <option value="{{ model }}" {% if model == 'gpt-4o' %}selected{% endif %}>{{ model }}</option>
+                            <option value="{{ model }}" {% if model == 'gpt-4o-mini' %}selected{% endif %}>{{ model }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -100,25 +100,57 @@
         <!-- ═══ STEP 2: COMPLIANCE FRAMEWORKS ═══ -->
         <section class="section">
             <h2 class="section-title"><span class="step-num">2</span> Compliance Frameworks</h2>
-            <p class="section-desc">Select compliance documents for ChromaDB embeddings and analysis. At least one is required.</p>
+            <p class="section-desc">Select Prowler compliance frameworks for each cloud provider. These are the actual <code>--compliance</code> values passed to Prowler. At least one is required.</p>
 
-            <div class="card">
-                <div class="fw-controls">
-                    <button class="btn btn-xs" onclick="selectAllFrameworks()">Select All</button>
-                    <button class="btn btn-xs btn-ghost" onclick="clearAllFrameworks()">Clear All</button>
-                    <span class="fw-counter" id="fw_counter">0 selected</span>
+            <div class="fw-split-grid">
+                <!-- AWS Compliance Frameworks (left) -->
+                <div class="card">
+                    <h3 class="card-title">
+                        <span class="provider-dot aws"></span>AWS Frameworks
+                    </h3>
+                    <div class="fw-controls">
+                        <button class="btn btn-xs" onclick="selectAllFw('aws')">Select All</button>
+                        <button class="btn btn-xs btn-ghost" onclick="clearAllFw('aws')">Clear All</button>
+                        <input type="text" class="scope-search" id="aws_fw_search" placeholder="Filter..." oninput="filterFw('aws')">
+                        <span class="fw-counter" id="aws_fw_counter">0 selected</span>
+                    </div>
+                    <div class="fw-grid" id="aws_fw_grid">
+                        {% for key, fw in aws_frameworks.items() %}
+                        <label class="fw-checkbox" data-category="{{ fw.category }}">
+                            <input type="checkbox" name="aws_framework" value="{{ key }}">
+                            <span class="fw-name">{{ fw.name }}</span>
+                            <span class="fw-tag">{{ fw.category }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
                 </div>
-                <div class="fw-grid" id="fw_grid">
-                    {% for key, fw in frameworks.items() %}
-                    <label class="fw-checkbox" data-category="{{ fw.category }}">
-                        <input type="checkbox" name="framework" value="{{ key }}">
-                        <span class="fw-name">{{ fw.name }}</span>
-                        <span class="fw-tag">{{ fw.category }}</span>
-                    </label>
-                    {% endfor %}
+
+                <!-- Azure Compliance Frameworks (right) -->
+                <div class="card">
+                    <h3 class="card-title">
+                        <span class="provider-dot azure"></span>Azure Frameworks
+                    </h3>
+                    <div class="fw-controls">
+                        <button class="btn btn-xs" onclick="selectAllFw('azure')">Select All</button>
+                        <button class="btn btn-xs btn-ghost" onclick="clearAllFw('azure')">Clear All</button>
+                        <input type="text" class="scope-search" id="azure_fw_search" placeholder="Filter..." oninput="filterFw('azure')">
+                        <span class="fw-counter" id="azure_fw_counter">0 selected</span>
+                    </div>
+                    <div class="fw-grid" id="azure_fw_grid">
+                        {% for key, fw in azure_frameworks.items() %}
+                        <label class="fw-checkbox" data-category="{{ fw.category }}">
+                            <input type="checkbox" name="azure_framework" value="{{ key }}">
+                            <span class="fw-name">{{ fw.name }}</span>
+                            <span class="fw-tag">{{ fw.category }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
                 </div>
-                <div class="status-box" id="fw_status"></div>
             </div>
+            <div class="fw-total-bar">
+                <span class="fw-counter" id="fw_counter">0 selected total</span>
+            </div>
+            <div class="status-box" id="fw_status"></div>
         </section>
 
         <!-- ═══ STEP 3: SCAN SCOPE (Service / Tag / Severity Filters) ═══ -->
@@ -287,7 +319,7 @@
                             <span class="step-name">AI Remediation (OpenAI)</span>
                             <span class="step-msg" id="msg_remediation">Pending...</span>
                         </div>
-                        <button class="btn btn-xs btn-download" onclick="downloadStep('remediation')" disabled>Download JSON</button>
+                        <button class="btn btn-xs btn-download" onclick="downloadStep('remediation')" disabled>Download TF</button>
                     </div>
                     <div class="step-row" id="step_opa_validation">
                         <div class="step-indicator pending"></div>

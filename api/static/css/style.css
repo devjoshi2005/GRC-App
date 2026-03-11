@@ -285,11 +285,30 @@ body {
 .btn-icon { font-size: 18px; }
 
 /* ─── Framework Checkboxes ───────────────────────────────────── */
+.fw-split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+@media (max-width: 960px) { .fw-split-grid { grid-template-columns: 1fr; } }
+
+.fw-total-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
 .fw-controls {
     display: flex;
     align-items: center;
     gap: 10px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.fw-controls .scope-search {
+    flex: 1;
+    min-width: 100px;
 }
 
 .fw-counter {
@@ -302,6 +321,8 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 6px;
+    max-height: 360px;
+    overflow-y: auto;
 }
 
 .fw-checkbox {

@@ -160,10 +160,13 @@ def calculate_control_effectiveness(finding: dict) -> float:
 def calculate_ale(loss_magnitude: float, threat_frequency: float, control_effectiveness: float) -> float:
     """
     Calculate Annualized Loss Expectancy using FAIR model.
-    ALE = Loss_Magnitude × Threat_Event_Frequency × (1 - Control_Effectiveness) × 365
+    ALE = Loss_Magnitude × Threat_Event_Frequency × (1 - Control_Effectiveness)
+
+    Threat frequencies are already annualized probabilities (e.g. Critical=0.30/year),
+    aligned with IBM Data Breach Report 2025 metrics.
     """
     residual_risk = 1.0 - min(max(control_effectiveness, 0.0), 1.0)
-    ale = loss_magnitude * threat_frequency * residual_risk * 365
+    ale = loss_magnitude * threat_frequency * residual_risk
     return round(ale, 2)
 
 

@@ -51,12 +51,12 @@ def extract_columns(
         "instance_type": lambda f: _get_resource(f, "type"),
     }
 
-    # Filter findings
+    # Filter findings — only require status_code=FAIL + severity match.
+    # Do NOT filter on status=="New"; AWS findings may use different status values.
     filtered = [
         f for f in findings
         if f.get("status_code") == "FAIL"
         and f.get("severity") in severity_filter
-        and f.get("status") == "New"
     ]
 
     if log_callback:
@@ -76,7 +76,7 @@ def extract_columns(
         rows.append(row)
 
     # Generate SQL-like summary
-    sql_query = f"SELECT {', '.join(columns)}\nFROM prowler_findings\nWHERE severity IN ({', '.join(repr(s) for s in severity_filter)})\n  AND status_code = 'FAIL' AND status = 'New'"
+    sql_query = f"SELECT {', '.join(columns)}\nFROM prowler_findings\nWHERE severity IN ({', '.join(repr(s) for s in severity_filter)})\n  AND status_code = 'FAIL'"
 
     return {
         "success": True,
@@ -89,15 +89,34 @@ def extract_columns(
 
 
 def export_to_csv(extraction_result: dict) -> str:
-    """Convert extraction result to CSV string."""
+    """Convert extraction result to Excel-compatible CSV string.
+
+    Adds UTF-8 BOM for Excel auto-detection, sanitises multiline values,
+    and forces quoting so commas inside fields don't break columns.
+    """
     rows = extraction_result.get("rows", [])
     columns = extraction_result.get("columns", [])
+    fieldnames = [c.strip() for c in columns]
 
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=[c.strip() for c in columns])
+    # UTF-8 BOM so Excel opens the file with correct encoding
+    output.write("\ufeff")
+
+    writer = csv.DictWriter(
+        output,
+        fieldnames=fieldnames,
+        quoting=csv.QUOTE_ALL,
+        lineterminator="\r\n",
+    )
     writer.writeheader()
     for row in rows:
-        writer.writerow(row)
+        sanitised = {}
+        for k, v in row.items():
+            val = str(v) if v is not None else ""
+            # Replace newlines/tabs that break Excel rows
+            val = val.replace("\r\n", "; ").replace("\n", "; ").replace("\r", "; ").replace("\t", " ")
+            sanitised[k] = val
+        writer.writerow(sanitised)
     return output.getvalue()
 
 

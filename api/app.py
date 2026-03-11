@@ -9,7 +9,8 @@ import sys
 import uuid
 import threading
 import time
-import re
+import zipfile
+import io
 from pathlib import Path
 from datetime import datetime
 
@@ -21,11 +22,12 @@ from flask import Flask, render_template, request, jsonify, send_file, session
 from config import (
     COMPLIANCE_FRAMEWORKS, OPENAI_MODELS, OUTPUT_DIR, UPLOAD_DIR, POLICY_DIR,
     DEFAULT_STEAMPIPE_COLUMNS, AWS_SERVICES, AZURE_SERVICES, SEVERITY_LEVELS,
+    AWS_COMPLIANCE_FRAMEWORKS, AZURE_COMPLIANCE_FRAMEWORKS,
 )
 from utils.crypto import CredentialEncryptor
 from utils.validators import validate_aws, validate_azure, validate_openai
 from utils.scanner import run_prowler_scan
-from utils.ai_engine import create_embeddings, generate_remediation, export_chromadb
+from utils.ai_engine import create_embeddings, generate_remediation, export_chromadb, extract_terraform_files
 from utils.policy_engine import validate_rego_file, batch_validate_remediations
 from utils.steampipe import extract_columns, export_to_csv
 from utils.risk_engine import generate_risk_report
@@ -49,6 +51,8 @@ def index():
     return render_template(
         "index.html",
         frameworks=COMPLIANCE_FRAMEWORKS,
+        aws_frameworks=AWS_COMPLIANCE_FRAMEWORKS,
+        azure_frameworks=AZURE_COMPLIANCE_FRAMEWORKS,
         models=OPENAI_MODELS,
         default_columns=DEFAULT_STEAMPIPE_COLUMNS,
         aws_services=AWS_SERVICES,
@@ -157,9 +161,12 @@ def api_run_pipeline():
     """Start the full GRC pipeline in a background thread."""
     data = request.json
 
-    # Validate inputs
+    # Validate inputs — frameworks are now split by provider
+    aws_frameworks = data.get("aws_frameworks", [])
+    azure_frameworks = data.get("azure_frameworks", [])
+    # Legacy fallback: if old 'frameworks' key sent, treat as combined
     frameworks = data.get("frameworks", [])
-    if not frameworks:
+    if not aws_frameworks and not azure_frameworks and not frameworks:
         return jsonify({"error": "Select at least one compliance framework"}), 400
 
     columns = data.get("steampipe_columns", DEFAULT_STEAMPIPE_COLUMNS)
@@ -242,12 +249,17 @@ def api_run_pipeline():
         "severity": severity,
         "regions": regions,
         "excluded_services": excluded_services,
+        "aws_frameworks": aws_frameworks,
+        "azure_frameworks": azure_frameworks,
     }
+
+    # Merge all framework keys for embeddings/report (friendly names)
+    all_fw_keys = list(set(frameworks + aws_frameworks + azure_frameworks))
 
     thread = threading.Thread(
         target=_execute_pipeline,
         args=(task_id, aws_creds, azure_creds, openai_key, openai_model,
-              frameworks, columns, rego_policy, scan_opts),
+              all_fw_keys, columns, rego_policy, scan_opts),
         daemon=True,
     )
     thread.start()
@@ -267,22 +279,47 @@ def api_pipeline_status(task_id):
 @app.route("/api/download/<task_id>/<step>")
 def api_download(task_id, step):
     """Download output from a specific pipeline step."""
-    task = pipeline_tasks.get(task_id)
-    if not task:
-        return jsonify({"error": "Task not found"}), 404
+    # Validate task_id is safe (hex chars only from uuid4().hex[:12])
+    if not task_id.isalnum():
+        return jsonify({"error": "Invalid task ID"}), 400
 
     output_dir = os.path.join(str(OUTPUT_DIR), task_id)
+    if not os.path.isdir(output_dir):
+        return jsonify({"error": "Task not found"}), 404
 
     file_map = {
         "prowler": ("prowler_findings.json", "application/json"),
         "embeddings": ("chromadb_export.json", "application/json"),
-        "remediation": ("remediation_plan.json", "application/json"),
         "opa_validation": ("opa_validation_results.json", "application/json"),
         "steampipe": ("steampipe_extraction.csv", "text/csv"),
         "risk_quantification": ("risk_quantification_report.json", "application/json"),
         "report": ("GRC_Compliance_Report.pdf", "application/pdf"),
         "dashboard": ("risk_quantification_report.json", "application/json"),
     }
+
+    # Remediation step: zip up extracted .tf files
+    if step == "remediation":
+        tf_dir = os.path.join(output_dir, "terraform_remediations")
+        if os.path.isdir(tf_dir):
+            tf_files = sorted(Path(tf_dir).glob("*.tf"))
+            if tf_files:
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for fp in tf_files:
+                        zf.write(fp, fp.name)
+                buf.seek(0)
+                return send_file(
+                    buf,
+                    mimetype="application/zip",
+                    as_attachment=True,
+                    download_name="terraform_remediations.zip",
+                )
+        # If no .tf files, fall back to JSON
+        filepath = os.path.join(output_dir, "remediation_plan.json")
+        if os.path.exists(filepath):
+            return send_file(filepath, mimetype="application/json",
+                             as_attachment=True, download_name="remediation_plan.json")
+        return jsonify({"error": "No remediation output available yet"}), 404
 
     if step not in file_map:
         return jsonify({"error": f"Unknown step: {step}"}), 400
@@ -312,27 +349,81 @@ def api_launch_dashboard():
 
     # Try to launch Streamlit
     try:
-        import subprocess
-        dashboard_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "streamlit_dashboard.py")
+        import subprocess as _sp
+        import socket
+        import shutil as _shutil
 
-        if os.path.exists(dashboard_path):
-            env = os.environ.copy()
-            env["GRC_RISK_FILE"] = risk_file
-            subprocess.Popen(
-                ["streamlit", "run", dashboard_path, "--server.port", "8501", "--server.headless", "true"],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        # Resolve streamlit binary — same venv-aware strategy as prowler
+        venv_bin = os.path.join(sys.prefix, "bin")
+        streamlit_cmd = os.path.join(venv_bin, "streamlit")
+        if not os.path.isfile(streamlit_cmd):
+            streamlit_cmd = os.path.join(os.path.dirname(sys.executable), "streamlit")
+        if not os.path.isfile(streamlit_cmd):
+            streamlit_cmd = _shutil.which("streamlit") or "streamlit"
+
+        # Search for the dashboard file in likely locations
+        dashboard_candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "streamlit_dashboard.py"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "streamlit_dashboard.py"),
+            os.path.join(os.getcwd(), "streamlit_dashboard.py"),
+        ]
+        dashboard_path = None
+        for candidate in dashboard_candidates:
+            if os.path.exists(candidate):
+                dashboard_path = candidate
+                break
+
+        if not dashboard_path:
+            return jsonify({"success": False, "message": f"Streamlit dashboard file not found. Searched: {dashboard_candidates}"})
+
+        # Check if port 8501 is already in use (dashboard may already be running)
+        port = 8501
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                # Already running — just point to it
+                return jsonify({
+                    "success": True,
+                    "url": f"http://localhost:{port}",
+                    "message": f"Streamlit dashboard already running on port {port}",
+                })
+
+        env = os.environ.copy()
+        env["GRC_RISK_FILE"] = risk_file
+        # Ensure the venv bin is on PATH so streamlit subprocesses also work
+        env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+
+        _sp.Popen(
+            [streamlit_cmd, "run", dashboard_path,
+             "--server.port", str(port),
+             "--server.headless", "true",
+             "--server.address", "0.0.0.0"],
+            env=env,
+            stdout=_sp.DEVNULL,
+            stderr=_sp.DEVNULL,
+        )
+
+        # Brief wait then verify it started
+        import time as _time
+        _time.sleep(2)
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            started = s.connect_ex(("127.0.0.1", port)) == 0
+
+        if started:
             return jsonify({
                 "success": True,
-                "url": "http://localhost:8501",
-                "message": "Streamlit dashboard launched on port 8501",
+                "url": f"http://localhost:{port}",
+                "message": f"Streamlit dashboard launched on port {port}",
             })
         else:
-            return jsonify({"success": False, "message": "Streamlit dashboard file not found"})
+            return jsonify({
+                "success": True,
+                "url": f"http://localhost:{port}",
+                "message": f"Dashboard process started (port {port}) — may need a few more seconds to initialize",
+            })
+
     except Exception as e:
-        return jsonify({"success": False, "message": f"Could not launch Streamlit: {str(e)[:200]}"})
+        return jsonify({"success": False, "message": f"Could not launch Streamlit: {str(e)[:300]}"})
 
 
 @app.route("/api/config")
@@ -340,6 +431,8 @@ def api_config():
     """Return configuration data for frontend."""
     return jsonify({
         "frameworks": COMPLIANCE_FRAMEWORKS,
+        "aws_frameworks": AWS_COMPLIANCE_FRAMEWORKS,
+        "azure_frameworks": AZURE_COMPLIANCE_FRAMEWORKS,
         "models": OPENAI_MODELS,
         "default_columns": DEFAULT_STEAMPIPE_COLUMNS,
         "aws_services": AWS_SERVICES,
@@ -380,6 +473,8 @@ def _execute_pipeline(task_id, aws_creds, azure_creds, openai_key, openai_model,
             azure_creds=azure_creds,
             output_dir=output_dir,
             compliance_frameworks=frameworks,
+            aws_frameworks=opts.get("aws_frameworks", []),
+            azure_frameworks=opts.get("azure_frameworks", []),
             services=opts.get("services", []),
             resource_tags=opts.get("resource_tags", []),
             resource_arns=opts.get("resource_arns", []),
@@ -388,6 +483,14 @@ def _execute_pipeline(task_id, aws_creds, azure_creds, openai_key, openai_model,
             excluded_services=opts.get("excluded_services", []),
             log_callback=log,
         )
+
+        # Log scan-level errors/warnings prominently
+        if scan_result.get("error"):
+            log(f"⚠ Prowler error: {scan_result['error']}")
+        if scan_result.get("aws") and not scan_result["aws"].get("success"):
+            log(f"⚠ AWS scan issue: {scan_result['aws'].get('message', 'unknown')}")
+        if scan_result.get("azure") and not scan_result["azure"].get("success"):
+            log(f"⚠ Azure scan issue: {scan_result['azure'].get('message', 'unknown')}")
 
         findings = []
         if scan_result.get("combined_file") and os.path.exists(scan_result["combined_file"]):
@@ -433,7 +536,7 @@ def _execute_pipeline(task_id, aws_creds, azure_creds, openai_key, openai_model,
 
         # ── Step 3: AI Remediation ────────────────────────────────
         update_step("remediation", "running", "Generating one-shot AI remediation via LlamaIndex RAG...")
-        log("Querying LlamaIndex engine — filtered findings (FAIL + Critical/High + New)...")
+        log("Querying LlamaIndex engine — filtered findings (Critical/High)...")
 
         remediation_result = generate_remediation(
             findings=findings,
@@ -451,8 +554,18 @@ def _execute_pipeline(task_id, aws_creds, azure_creds, openai_key, openai_model,
         task["outputs"]["remediation"] = {
             "analyzed": remediation_result.get("analyzed", 0),
             "generated": len(remediation_result.get("remediations", [])),
+            "terraform_count": remediation_result.get("terraform_count", 0),
         }
         update_step("remediation", "completed", remediation_result.get("message", ""))
+
+        # Extract Terraform .tf files from remediation output
+        tf_output_dir = os.path.join(output_dir, "terraform_remediations")
+        tf_extract = extract_terraform_files(
+            remediations=remediation_result.get("remediations", []),
+            output_dir=tf_output_dir,
+            log_callback=log,
+        )
+        log(f"Extracted {tf_extract.get('total_files', 0)} Terraform files to {tf_output_dir}")
 
         # ── Step 4: OPA Policy Validation ─────────────────────────
         update_step("opa_validation", "running", "Validating remediation against OPA policies...")
@@ -461,6 +574,7 @@ def _execute_pipeline(task_id, aws_creds, azure_creds, openai_key, openai_model,
         opa_results = batch_validate_remediations(
             remediations=remediation_result.get("remediations", []),
             rego_policy=rego_policy,
+            tf_dir=tf_output_dir,
             log_callback=log,
         )
 
@@ -567,4 +681,4 @@ def _execute_pipeline(task_id, aws_creds, azure_creds, openai_key, openai_model,
 # ═══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=False, host="0.0.0.0", port=5000)

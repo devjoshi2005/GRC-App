@@ -1,20 +1,61 @@
 """OPA Rego policy validation engine.
-Uses OPA binary when available; falls back to Python-based validation."""
+Validates AI-generated Terraform code against security policies using:
+  1. conftest (preferred) — runs Rego deny rules against .tf files
+  2. trivy config — built-in misconfiguration scanning
+  3. OPA eval — raw policy evaluation
+  4. Python regex fallback — basic pattern checks
+"""
 
 import json
 import os
 import re
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+# ─── Cached tool availability checks ─────────────────────────────
+_opa_cache = None
+_conftest_cache = None
+_trivy_cache = None
 
 
 def _opa_available() -> bool:
+    global _opa_cache
+    if _opa_cache is not None:
+        return _opa_cache
     try:
         r = subprocess.run(["opa", "version"], capture_output=True, text=True, timeout=5)
-        return r.returncode == 0
+        _opa_cache = r.returncode == 0
     except Exception:
-        return False
+        _opa_cache = False
+    return _opa_cache
+
+
+def _conftest_available() -> bool:
+    """Check if conftest binary is on PATH (result cached)."""
+    global _conftest_cache
+    if _conftest_cache is not None:
+        return _conftest_cache
+    try:
+        r = subprocess.run(["conftest", "--version"], capture_output=True, text=True, timeout=5)
+        _conftest_cache = r.returncode == 0
+    except Exception:
+        _conftest_cache = False
+    return _conftest_cache
+
+
+def _trivy_available() -> bool:
+    """Check if trivy binary is on PATH (result cached)."""
+    global _trivy_cache
+    if _trivy_cache is not None:
+        return _trivy_cache
+    try:
+        r = subprocess.run(["trivy", "--version"], capture_output=True, text=True, timeout=5)
+        _trivy_cache = r.returncode == 0
+    except Exception:
+        _trivy_cache = False
+    return _trivy_cache
 
 
 def validate_rego_file(rego_content: str) -> dict:
@@ -55,14 +96,126 @@ def validate_with_opa(
     rego_policy: str,
     log_callback=None,
 ) -> dict:
-    """Validate Terraform remediation code against OPA Rego policy."""
+    """Validate Terraform remediation code against Rego policy.
 
-    if _opa_available():
-        return _validate_opa_real(terraform_code, rego_policy, log_callback)
-    else:
+    Tries, in order: conftest → trivy → OPA eval → Python fallback.
+    """
+    if _conftest_available() and rego_policy:
         if log_callback:
-            log_callback("OPA binary not found — using Python regex policy check")
-        return _validate_python_fallback(terraform_code, rego_policy)
+            log_callback("Using conftest for Terraform policy validation")
+        return _validate_conftest(terraform_code, rego_policy, log_callback)
+    if _trivy_available():
+        if log_callback:
+            log_callback("Using trivy config for Terraform validation")
+        return _validate_trivy(terraform_code, log_callback)
+    if _opa_available() and rego_policy:
+        if log_callback:
+            log_callback("Using OPA eval for policy validation")
+        return _validate_opa_real(terraform_code, rego_policy, log_callback)
+
+    if log_callback:
+        log_callback("No policy tool found (conftest/trivy/opa) — using Python fallback")
+    return _validate_python_fallback(terraform_code, rego_policy)
+
+
+# ─── conftest validation ──────────────────────────────────────────
+
+def _validate_conftest(tf_code: str, rego_policy: str, log_cb=None) -> dict:
+    """Run ``conftest test`` on a .tf file against the supplied Rego policy."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tf_path = os.path.join(tmpdir, "main.tf")
+        policy_dir = os.path.join(tmpdir, "policy")
+        os.makedirs(policy_dir, exist_ok=True)
+        policy_path = os.path.join(policy_dir, "security_policy.rego")
+
+        with open(tf_path, "w") as f:
+            f.write(tf_code)
+        with open(policy_path, "w") as f:
+            f.write(rego_policy)
+
+        try:
+            cmd = [
+                "conftest", "test", tf_path,
+                "--policy", policy_dir,
+                "--output", "json",
+                "--no-color",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            violations = []
+            try:
+                output = json.loads(result.stdout)
+                for entry in output:
+                    for failure in entry.get("failures", []):
+                        violations.append(failure.get("msg", str(failure)))
+                    for warning in entry.get("warnings", []):
+                        violations.append(f"WARNING: {warning.get('msg', str(warning))}")
+            except (json.JSONDecodeError, TypeError):
+                if result.returncode != 0 and result.stderr:
+                    violations.append(result.stderr[:300])
+
+            return {
+                "method": "conftest",
+                "compliant": len(violations) == 0,
+                "violations": violations,
+                "violation_count": len(violations),
+                "message": (
+                    "conftest: All policies passed"
+                    if not violations
+                    else f"conftest: {len(violations)} violations found"
+                ),
+            }
+        except subprocess.TimeoutExpired:
+            return {"method": "conftest", "compliant": False, "message": "conftest timed out"}
+        except Exception as e:
+            return {"method": "conftest", "compliant": False, "message": f"conftest error: {str(e)[:200]}"}
+
+
+# ─── trivy config validation ─────────────────────────────────────
+
+def _validate_trivy(tf_code: str, log_cb=None) -> dict:
+    """Run ``trivy config`` on Terraform code for misconfiguration scanning."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tf_path = os.path.join(tmpdir, "main.tf")
+        with open(tf_path, "w") as f:
+            f.write(tf_code)
+
+        try:
+            cmd = [
+                "trivy", "config", tmpdir,
+                "--format", "json",
+                "--severity", "CRITICAL,HIGH,MEDIUM",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+            violations = []
+            try:
+                output = json.loads(result.stdout)
+                for res in output.get("Results", []):
+                    for misconfig in res.get("Misconfigurations", []):
+                        sev = misconfig.get("Severity", "")
+                        title = misconfig.get("Title", "")
+                        msg = misconfig.get("Message", "")
+                        violations.append(f"{sev}: {title} — {msg}")
+            except (json.JSONDecodeError, TypeError):
+                if result.returncode != 0 and result.stderr:
+                    violations.append(result.stderr[:300])
+
+            return {
+                "method": "trivy",
+                "compliant": len(violations) == 0,
+                "violations": violations,
+                "violation_count": len(violations),
+                "message": (
+                    "trivy: No misconfigurations found"
+                    if not violations
+                    else f"trivy: {len(violations)} misconfigurations found"
+                ),
+            }
+        except subprocess.TimeoutExpired:
+            return {"method": "trivy", "compliant": False, "message": "trivy timed out"}
+        except Exception as e:
+            return {"method": "trivy", "compliant": False, "message": f"trivy error: {str(e)[:200]}"}
 
 
 def _validate_opa_real(tf_code: str, rego_policy: str, log_cb) -> dict:
@@ -214,31 +367,46 @@ def _terraform_to_opa_input(tf_code: str) -> dict:
 def batch_validate_remediations(
     remediations: list[dict],
     rego_policy: str,
+    tf_dir: str = "",
     log_callback=None,
 ) -> list[dict]:
-    """Validate all AI-generated remediation code against OPA policy."""
-    results = []
+    """Validate AI-generated Terraform remediation code against OPA Rego policy.
 
-    for i, rem in enumerate(remediations):
+    If ``tf_dir`` is supplied and contains .tf files, runs
+    ``conftest test <file>.tf -p <policy_dir>`` on each file directly.
+    Otherwise falls back to extracting HCL from the analysis text.
+    """
+    # If conftest is available and we have real .tf files on disk, use them directly
+    tf_files = []
+    if tf_dir and os.path.isdir(tf_dir):
+        tf_files = sorted(Path(tf_dir).glob("*.tf"))
+
+    if tf_files and _conftest_available() and rego_policy:
+        if log_callback:
+            log_callback(f"Using conftest on {len(tf_files)} extracted .tf files")
+        return _batch_conftest(tf_files, rego_policy, remediations, log_callback)
+
+    # Fallback: per-finding validation from analysis text
+    def _validate_one(idx_rem):
+        i, rem = idx_rem
         analysis = rem.get("analysis", "")
-
-        # Extract HCL/Terraform code blocks
-        hcl_pattern = r"```(?:hcl|terraform)?\s*(.*?)\s*```"
-        code_blocks = re.findall(hcl_pattern, analysis, re.DOTALL)
+        code_blocks = rem.get("terraform_blocks") or []
+        if not code_blocks:
+            hcl_pattern = r"```(?:hcl|terraform)?\s*(.*?)\s*```"
+            code_blocks = re.findall(hcl_pattern, analysis, re.DOTALL)
 
         if not code_blocks:
-            results.append({
+            return i, {
                 "finding": rem.get("finding_title", ""),
                 "has_code": False,
                 "validated": False,
                 "message": "No Terraform code found in remediation",
-            })
-            continue
+            }
 
         combined_code = "\n\n".join(code_blocks)
         validation = validate_with_opa(combined_code, rego_policy, log_callback)
 
-        results.append({
+        return i, {
             "finding": rem.get("finding_title", ""),
             "has_code": True,
             "validated": True,
@@ -246,10 +414,108 @@ def batch_validate_remediations(
             "violations": validation.get("violations", []),
             "method": validation.get("method", ""),
             "message": validation.get("message", ""),
-        })
+        }
 
-        if log_callback:
-            status = "PASS" if validation.get("compliant") else "FAIL"
-            log_callback(f"  [{i+1}] OPA {status}: {rem.get('finding_title', '')[:50]}...")
+    total = len(remediations)
+    max_workers = min(4, total) if total > 1 else 1
+    indexed_results = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_validate_one, (i, rem)): i
+            for i, rem in enumerate(remediations)
+        }
+        for future in as_completed(futures):
+            idx, result = future.result()
+            indexed_results[idx] = result
+
+    return [indexed_results[i] for i in range(total)]
+
+
+def _batch_conftest(
+    tf_files: list,
+    rego_policy: str,
+    remediations: list[dict],
+    log_cb=None,
+) -> list[dict]:
+    """Run ``conftest test <file>.tf --policy <policy_dir>`` on each .tf file."""
+    results = []
+
+    # Write rego policy to a temp dir once
+    with tempfile.TemporaryDirectory() as policy_tmpdir:
+        policy_dir = os.path.join(policy_tmpdir, "policy")
+        os.makedirs(policy_dir, exist_ok=True)
+        policy_path = os.path.join(policy_dir, "security_policy.rego")
+        with open(policy_path, "w") as f:
+            f.write(rego_policy)
+
+        # Build a map: item index → list of .tf files for that item
+        item_files = {}
+        for tf_path in tf_files:
+            # Filenames: item_0_block_0_resource.tf
+            name = tf_path.stem
+            parts = name.split("_")
+            try:
+                item_idx = int(parts[1]) if len(parts) > 1 else -1
+            except (ValueError, IndexError):
+                item_idx = -1
+            item_files.setdefault(item_idx, []).append(tf_path)
+
+        # Validate per remediation item
+        for i, rem in enumerate(remediations):
+            files = item_files.get(i, [])
+            if not files:
+                results.append({
+                    "finding": rem.get("finding_title", ""),
+                    "has_code": False,
+                    "validated": False,
+                    "message": "No Terraform .tf file found for this remediation",
+                })
+                continue
+
+            all_violations = []
+            for tf_path in files:
+                try:
+                    cmd = [
+                        "conftest", "test", str(tf_path),
+                        "--policy", policy_dir,
+                        "--output", "json",
+                        "--no-color",
+                    ]
+                    if log_cb:
+                        log_cb(f"  conftest test {tf_path.name} -p policy/")
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+                    try:
+                        output = json.loads(result.stdout)
+                        for entry in output:
+                            for failure in entry.get("failures", []):
+                                all_violations.append(failure.get("msg", str(failure)))
+                            for warning in entry.get("warnings", []):
+                                all_violations.append(f"WARNING: {warning.get('msg', str(warning))}")
+                    except (json.JSONDecodeError, TypeError):
+                        if result.returncode != 0 and result.stderr:
+                            all_violations.append(result.stderr[:300])
+
+                except subprocess.TimeoutExpired:
+                    all_violations.append(f"conftest timed out on {tf_path.name}")
+                except Exception as e:
+                    all_violations.append(f"conftest error on {tf_path.name}: {str(e)[:200]}")
+
+            results.append({
+                "finding": rem.get("finding_title", ""),
+                "has_code": True,
+                "validated": True,
+                "compliant": len(all_violations) == 0,
+                "violations": all_violations,
+                "violation_count": len(all_violations),
+                "method": "conftest",
+                "tf_files": [str(p.name) for p in files],
+                "message": (
+                    f"conftest: All policies passed ({len(files)} .tf files)"
+                    if not all_violations
+                    else f"conftest: {len(all_violations)} violations in {len(files)} .tf files"
+                ),
+            })
 
     return results

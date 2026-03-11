@@ -1,0 +1,14 @@
+# Railway deployment config
+# Docs: https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+numReplicas = 1
+startCommand = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 1800 --chdir api app:app"
+healthcheckPath = "/api/config"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

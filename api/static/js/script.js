@@ -88,28 +88,55 @@ async function validateOpenAI() {
 
 
 // ═══════════════════════════════════════════════════════════════
-//  Framework Selection
+//  Framework Selection (split AWS / Azure)
 // ═══════════════════════════════════════════════════════════════
 
+function updateFwCounter(provider) {
+    const count = document.querySelectorAll(`#${provider}_fw_grid input[type="checkbox"]:checked`).length;
+    document.getElementById(`${provider}_fw_counter`).textContent = `${count} selected`;
+    updateFrameworkCounter();
+}
+
 function updateFrameworkCounter() {
-    const checked = document.querySelectorAll('#fw_grid input[type="checkbox"]:checked');
-    document.getElementById('fw_counter').textContent = `${checked.length} selected`;
+    const awsCount = document.querySelectorAll('#aws_fw_grid input[type="checkbox"]:checked').length;
+    const azureCount = document.querySelectorAll('#azure_fw_grid input[type="checkbox"]:checked').length;
+    document.getElementById('fw_counter').textContent = `${awsCount + azureCount} selected total`;
 }
 
-function selectAllFrameworks() {
-    document.querySelectorAll('#fw_grid input[type="checkbox"]').forEach(cb => cb.checked = true);
-    updateFrameworkCounter();
+function selectAllFw(provider) {
+    document.querySelectorAll(`#${provider}_fw_grid .fw-checkbox`).forEach(label => {
+        if (label.style.display !== 'none') {
+            label.querySelector('input[type="checkbox"]').checked = true;
+        }
+    });
+    updateFwCounter(provider);
 }
 
-function clearAllFrameworks() {
-    document.querySelectorAll('#fw_grid input[type="checkbox"]').forEach(cb => cb.checked = false);
-    updateFrameworkCounter();
+function clearAllFw(provider) {
+    document.querySelectorAll(`#${provider}_fw_grid input[type="checkbox"]`).forEach(cb => cb.checked = false);
+    updateFwCounter(provider);
 }
+
+function filterFw(provider) {
+    const search = document.getElementById(`${provider}_fw_search`).value.toLowerCase();
+    document.querySelectorAll(`#${provider}_fw_grid .fw-checkbox`).forEach(label => {
+        const name = label.querySelector('.fw-name').textContent.toLowerCase();
+        const tag = label.querySelector('.fw-tag').textContent.toLowerCase();
+        label.style.display = (name.includes(search) || tag.includes(search)) ? '' : 'none';
+    });
+}
+
+// Legacy compat (no-ops if old code references them)
+function selectAllFrameworks() { selectAllFw('aws'); selectAllFw('azure'); }
+function clearAllFrameworks() { clearAllFw('aws'); clearAllFw('azure'); }
 
 // Attach change listeners
 document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('#fw_grid input[type="checkbox"]').forEach(cb => {
-        cb.addEventListener('change', updateFrameworkCounter);
+    document.querySelectorAll('#aws_fw_grid input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => updateFwCounter('aws'));
+    });
+    document.querySelectorAll('#azure_fw_grid input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => updateFwCounter('azure'));
     });
     updateColumnPills();
 
@@ -272,15 +299,19 @@ function updateColumnPills() {
 // ═══════════════════════════════════════════════════════════════
 
 async function runPipeline() {
-    // Gather inputs
-    const frameworks = [];
-    document.querySelectorAll('#fw_grid input[type="checkbox"]:checked').forEach(cb => {
-        frameworks.push(cb.value);
+    // Gather framework selections (split by provider)
+    const awsFrameworks = [];
+    document.querySelectorAll('#aws_fw_grid input[type="checkbox"]:checked').forEach(cb => {
+        awsFrameworks.push(cb.value);
+    });
+    const azureFrameworks = [];
+    document.querySelectorAll('#azure_fw_grid input[type="checkbox"]:checked').forEach(cb => {
+        azureFrameworks.push(cb.value);
     });
 
-    if (frameworks.length === 0) {
+    if (awsFrameworks.length === 0 && azureFrameworks.length === 0) {
         const fwStatus = document.getElementById('fw_status');
-        setStatus(fwStatus, 'error', 'Select at least one compliance framework');
+        setStatus(fwStatus, 'error', 'Select at least one compliance framework (AWS or Azure)');
         return;
     }
 
@@ -309,7 +340,8 @@ async function runPipeline() {
 
     // Prepare payload
     const payload = {
-        frameworks,
+        aws_frameworks: awsFrameworks,
+        azure_frameworks: azureFrameworks,
         steampipe_columns: columns,
         use_default_rego: useDefaultRego,
         openai_api_key: openaiKey,
