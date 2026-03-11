@@ -29,13 +29,8 @@ COPY . .
 RUN mkdir -p /tmp/grc_outputs /tmp/grc_uploads
 
 # ── Runtime ────────────────────────────────────────────────────
-EXPOSE 8080
+# Railway/Render inject $PORT at runtime; default to 8080 for local use.
+# Shell form (not exec form) so ${PORT:-8080} expands correctly.
+EXPOSE ${PORT:-8080}
 
-# Use gunicorn for production (2 workers, generous timeout for long scans)
-CMD ["gunicorn", \
-     "--bind", "0.0.0.0:8080", \
-     "--workers", "2", \
-     "--threads", "4", \
-     "--timeout", "1800", \
-     "--chdir", "api", \
-     "app:app"]
+CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 1800 --chdir api app:app
