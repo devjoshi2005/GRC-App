@@ -7,18 +7,18 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 POLICY_DIR = BASE_DIR / "policy"
 
-# On Vercel (read-only FS) write to /tmp; locally use api/outputs and api/uploads
-_VERCEL = os.environ.get("VERCEL", "")
-if _VERCEL:
-    OUTPUT_DIR = Path("/tmp/grc_outputs")
-    UPLOAD_DIR = Path("/tmp/grc_uploads")
-else:
-    OUTPUT_DIR = BASE_DIR / "outputs"
-    UPLOAD_DIR = BASE_DIR / "uploads"
+# Always write outputs to /tmp — never store scan results inside the repo tree.
+# /tmp is ephemeral (cleared on reboot/container restart) and not web-accessible.
+OUTPUT_DIR = Path("/tmp/grc_outputs")
+UPLOAD_DIR = Path("/tmp/grc_uploads")
 
 # Ensure writable directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Auto-cleanup: delete task output directories older than this (seconds).
+# Default 30 min — scan findings are sensitive and shouldn't linger.
+OUTPUT_TTL_SECONDS = int(os.environ.get("GRC_OUTPUT_TTL", 1800))
 
 # Legacy combined frameworks dict (kept for backward compat with embeddings/report)
 COMPLIANCE_FRAMEWORKS = {

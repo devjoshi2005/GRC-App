@@ -9,6 +9,7 @@ import sys
 import uuid
 import threading
 import time
+import shutil
 import zipfile
 import io
 from pathlib import Path
@@ -22,7 +23,7 @@ from flask import Flask, render_template, request, jsonify, send_file, session
 from config import (
     COMPLIANCE_FRAMEWORKS, OPENAI_MODELS, OUTPUT_DIR, UPLOAD_DIR, POLICY_DIR,
     DEFAULT_STEAMPIPE_COLUMNS, AWS_SERVICES, AZURE_SERVICES, SEVERITY_LEVELS,
-    AWS_COMPLIANCE_FRAMEWORKS, AZURE_COMPLIANCE_FRAMEWORKS,
+    AWS_COMPLIANCE_FRAMEWORKS, AZURE_COMPLIANCE_FRAMEWORKS, OUTPUT_TTL_SECONDS,
 )
 from utils.crypto import CredentialEncryptor
 from utils.validators import validate_aws, validate_azure, validate_openai
@@ -40,6 +41,33 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", uuid.uuid4().hex)
 # In-memory stores (session-scoped in production, global for demo)
 encryptor = CredentialEncryptor()
 pipeline_tasks = {}  # task_id → task state
+
+
+# ─── Auto-cleanup: purge expired output dirs every 5 min ────────────
+def _cleanup_expired_outputs():
+    """Background thread: delete task output dirs older than OUTPUT_TTL_SECONDS.
+
+    Also evicts the corresponding in-memory task entry so guessing old
+    task IDs returns 404.
+    """
+    while True:
+        try:
+            time.sleep(300)  # check every 5 min
+            now = time.time()
+            if not OUTPUT_DIR.is_dir():
+                continue
+            for child in OUTPUT_DIR.iterdir():
+                if not child.is_dir():
+                    continue
+                age = now - child.stat().st_mtime
+                if age > OUTPUT_TTL_SECONDS:
+                    shutil.rmtree(child, ignore_errors=True)
+                    pipeline_tasks.pop(child.name, None)
+        except Exception:
+            pass  # never crash the cleanup thread
+
+_cleanup_thread = threading.Thread(target=_cleanup_expired_outputs, daemon=True)
+_cleanup_thread.start()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -205,8 +233,8 @@ def api_run_pipeline():
     if not openai_key:
         return jsonify({"error": "OpenAI API key is required"}), 400
 
-    # Create task
-    task_id = uuid.uuid4().hex[:12]
+    # Create task — full UUID hex (32 chars) to prevent brute-force enumeration
+    task_id = uuid.uuid4().hex
     task = {
         "id": task_id,
         "status": "running",
@@ -227,6 +255,11 @@ def api_run_pipeline():
         "started_at": datetime.now().isoformat(),
     }
     pipeline_tasks[task_id] = task
+
+    # Bind task to this session so only the creator can access it
+    owned_tasks = session.get("owned_tasks", [])
+    owned_tasks.append(task_id)
+    session["owned_tasks"] = owned_tasks
 
     # Load rego policy
     rego_policy = ""
@@ -273,15 +306,21 @@ def api_pipeline_status(task_id):
     task = pipeline_tasks.get(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
+    if task_id not in session.get("owned_tasks", []):
+        return jsonify({"error": "Access denied"}), 403
     return jsonify(task)
 
 
 @app.route("/api/download/<task_id>/<step>")
 def api_download(task_id, step):
     """Download output from a specific pipeline step."""
-    # Validate task_id is safe (hex chars only from uuid4().hex[:12])
+    # Validate task_id is safe (hex chars only from uuid4().hex)
     if not task_id.isalnum():
         return jsonify({"error": "Invalid task ID"}), 400
+
+    # Only the session that started the pipeline can download results
+    if task_id not in session.get("owned_tasks", []):
+        return jsonify({"error": "Access denied"}), 403
 
     output_dir = os.path.join(str(OUTPUT_DIR), task_id)
     if not os.path.isdir(output_dir):
@@ -342,6 +381,9 @@ def api_launch_dashboard():
 
     if not task:
         return jsonify({"error": "Task not found"}), 404
+
+    if task_id not in session.get("owned_tasks", []):
+        return jsonify({"error": "Access denied"}), 403
 
     risk_file = os.path.join(str(OUTPUT_DIR), task_id, "risk_quantification_report.json")
     if not os.path.exists(risk_file):
@@ -439,6 +481,25 @@ def api_config():
         "azure_services": AZURE_SERVICES,
         "severity_levels": SEVERITY_LEVELS,
     })
+
+
+@app.route("/api/cleanup/<task_id>", methods=["POST"])
+def api_cleanup(task_id):
+    """Delete all output files for a task. Only the session owner can call this."""
+    if task_id not in session.get("owned_tasks", []):
+        return jsonify({"error": "Access denied"}), 403
+
+    output_dir = os.path.join(str(OUTPUT_DIR), task_id)
+    if os.path.isdir(output_dir):
+        shutil.rmtree(output_dir, ignore_errors=True)
+    pipeline_tasks.pop(task_id, None)
+
+    owned = session.get("owned_tasks", [])
+    if task_id in owned:
+        owned.remove(task_id)
+        session["owned_tasks"] = owned
+
+    return jsonify({"success": True, "message": "Task data deleted"})
 
 
 # ═══════════════════════════════════════════════════════════════════

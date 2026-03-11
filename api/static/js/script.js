@@ -459,6 +459,9 @@ async function pollPipelineStatus(taskId) {
 
             if (task.status === 'completed') {
                 addLog('Pipeline completed successfully!');
+                // Show cleanup button
+                const cleanupRow = document.getElementById('step_cleanup');
+                if (cleanupRow) cleanupRow.style.display = '';
             } else {
                 addLog('Pipeline failed: ' + (task.error || 'Unknown error'));
             }
@@ -497,6 +500,36 @@ async function launchDashboard() {
         }
     } catch (err) {
         addLog(`Dashboard launch failed: ${err.message}`);
+    }
+}
+
+
+async function cleanupTask() {
+    if (!currentTaskId) return;
+    if (!confirm('This will permanently delete all scan results from the server. Make sure you\'ve downloaded everything you need. Continue?')) {
+        return;
+    }
+    try {
+        const resp = await fetch(`/api/cleanup/${currentTaskId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await resp.json();
+        if (data.success) {
+            addLog('Server data deleted successfully.');
+            const cleanupRow = document.getElementById('step_cleanup');
+            if (cleanupRow) {
+                cleanupRow.querySelector('#msg_cleanup').textContent = 'Data deleted.';
+                cleanupRow.querySelector('#btn_cleanup').disabled = true;
+                cleanupRow.querySelector('#btn_cleanup').textContent = '\u2714 Deleted';
+            }
+            // Disable all download buttons since files are gone
+            document.querySelectorAll('.btn-download').forEach(btn => btn.disabled = true);
+        } else {
+            addLog(`Cleanup failed: ${data.error || data.message}`);
+        }
+    } catch (err) {
+        addLog(`Cleanup error: ${err.message}`);
     }
 }
 

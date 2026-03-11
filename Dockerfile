@@ -25,8 +25,8 @@ RUN grep -iv 'vercel' requirements.txt > requirements_docker.txt \
 # ── Copy application code ─────────────────────────────────────
 COPY . .
 
-# Ensure output/upload directories exist
-RUN mkdir -p /app/api/outputs /app/api/uploads
+# Outputs go to /tmp (ephemeral), not the app tree
+RUN mkdir -p /tmp/grc_outputs /tmp/grc_uploads
 
 # ── Runtime ────────────────────────────────────────────────────
 EXPOSE 8080

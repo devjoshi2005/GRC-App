@@ -361,6 +361,16 @@
                         </div>
                         <button class="btn btn-xs btn-accent" onclick="launchDashboard()" disabled id="btn_dashboard">Open Dashboard</button>
                     </div>
+
+                    <!-- Cleanup: wipe server-side scan data after download -->
+                    <div class="step-row" id="step_cleanup" style="display:none; border-top:1px solid var(--border);">
+                        <div class="step-info" style="flex:1;">
+                            <span class="step-name" style="color:var(--warning);">&#x26A0; Scan data is stored temporarily on the server</span>
+                            <span class="step-msg" id="msg_cleanup">Download your results, then delete server data.</span>
+                        </div>
+                        <button class="btn btn-xs" onclick="cleanupTask()" id="btn_cleanup"
+                                style="background:var(--error);color:#fff;">&#x1F5D1; Delete Server Data</button>
+                    </div>
                 </div>
 
                 <!-- Live Logs -->
